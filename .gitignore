@@ -8,3 +8,5 @@ ckpt/
 .venv/
 data/
 .ipynb
+
+exp_logs/
