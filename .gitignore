@@ -6,3 +6,4 @@ ckpt/
 *.log
 *.txt
 .venv/
+data/
