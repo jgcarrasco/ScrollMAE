@@ -22,7 +22,7 @@ class SegmentDataset(Dataset):
     be used.
     """
 
-    def __init__(self, segment_path="../jepa-scrolls/data/20231210121321.zarr", crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
+    def __init__(self, segment_path="../data/20231210121321.zarr", crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
 
         self.transforms = transforms
 
@@ -44,10 +44,8 @@ class SegmentDataset(Dataset):
         self.segment = (self.segment - self.mean[:, None, None]) / self.std[:, None, None]
 
         if self.mode == "eval":
-            self.inklabels = cv2.imread(f"{segment_path}/{segment_id}_inklabels.png", cv2.IMREAD_GRAYSCALE)
-            # NOTE: Look into this - However, I think that they are aligned at (0, 0) so there should be no problem
-            # The assertion below does not hold. I guess that there is some sort of padding/rescaling that causes it to not match?
-            # assert(self.inklabels.shape == self.segment_mask.shape), "The shape of the mask and inklabels must be equal"
+            self.inklabels = torch.tensor(cv2.imread(f"{segment_path}/{segment_id}_inklabels.png", cv2.IMREAD_GRAYSCALE), dtype=torch.bool)
+
         assert (self.segment.shape[1:] == self.segment_mask.shape), "The shape of the mask must be the same as the segment!"
         self.h, self.w = self.segment.shape[1:]
         self.crop_pos = []

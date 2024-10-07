@@ -38,6 +38,7 @@ The first that you have to do is to download segment data from the vesuvius serv
     - You can leave other options at their default values.
     - Exit the configuration menu once you've created the remote.
 - Now we can copy segments as follows: `rclone copy scrolls_remote:20230519195952.zarr/ ./20230519195952.zarr/ --progress --multi-thread-streams=32 --transfers=32 --size-only` where `20230519195952` can be replaced by any segment ID that you want to download.
+- After the setup, you can run `.download_segment.sh SEGMENT_ID` to easily download any segment.
 
 ### Pretrain
 
