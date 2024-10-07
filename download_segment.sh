@@ -1,4 +1,4 @@
-echo "First arg: $1"
+echo "Downloading segment $1"
 
 # Download the .zarr segment
 rclone copy scrolls_remote:$1.zarr/ ./$1.zarr/ --progress --multi-thread-streams=32 --transfers=32 --size-only
