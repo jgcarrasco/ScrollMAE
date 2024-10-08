@@ -9,5 +9,6 @@ ckpt/
 data/
 .ipynb
 
+checkpoints/
 exp_logs/
 explore.ipynb
