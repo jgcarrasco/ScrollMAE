@@ -10,5 +10,6 @@ data/
 .ipynb
 
 checkpoints/
+runs/
 exp_logs/
 explore.ipynb
