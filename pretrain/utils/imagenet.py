@@ -80,7 +80,7 @@ def build_dataset_to_pretrain(dataset_path, input_size, dataset_type) -> Dataset
             transforms.RandomResizedCrop(input_size, scale=(0.67, 1.0), interpolation=interpolation),
             transforms.RandomHorizontalFlip(),
         ])
-        dataset_train = SegmentDataset(segment_path=dataset_path, transforms=trans_train, mode="pretrain")
+        dataset_train = SegmentDataset(segment_id=dataset_path, transforms=trans_train, mode="pretrain")
     else:
         trans_train = transforms.Compose([
             transforms.RandomResizedCrop(input_size, scale=(0.67, 1.0), interpolation=interpolation),

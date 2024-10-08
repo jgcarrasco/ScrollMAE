@@ -1,8 +1,11 @@
-import zarr
-import cv2
+from itertools import product
 
 import torch
+import vesuvius
 from torch.utils.data import Dataset
+from tqdm import tqdm
+from vesuvius import Volume
+
 
 class SegmentDataset(Dataset):
     """
@@ -22,7 +25,7 @@ class SegmentDataset(Dataset):
     be used.
     """
 
-    def __init__(self, segment_path="../data/20231210121321.zarr", crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
+    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
 
         self.transforms = transforms
 
@@ -30,44 +33,42 @@ class SegmentDataset(Dataset):
             stride = crop_size
         self.crop_size = crop_size
         self.mode = mode
-        self.segment = zarr.load(segment_path)[0] # (depth, height, width)
+        print("Loading volume...")
+        self.volume = Volume(segment_id, normalize=True, cache=True) # (depth, height, width)
         # take the z_depth central layers
-        z_i = self.segment.shape[0] // 2 - z_depth // 2
+        z_i = self.volume.shape(0)[0] // 2 - z_depth // 2
         z_f = z_i + z_depth
-        self.segment = torch.tensor(self.segment[z_i:z_f], dtype=torch.float32)
-        
-        # Load segment mask
-        segment_id = segment_path.split("/")[-1].split(".")[0]
-        self.segment_mask = torch.tensor(cv2.imread(f"{segment_path}/{segment_id}_mask.png", cv2.IMREAD_GRAYSCALE), dtype=torch.bool)
-        # Compute channel-wise mean and std for normalization purposes
-        self.mean, self.std = self.compute_mean_std()
-        self.segment = (self.segment - self.mean[:, None, None]) / self.std[:, None, None]
+        self.z_i = z_i; self.z_f = z_f
+        # It is faster to load all the segment at once than loading crop by crop
+        self.segment = self.volume[z_i:z_f, :, :]
+        self.inklabel = self.volume.inklabel / 255.
 
-        if self.mode == "eval":
-            self.inklabels = torch.tensor(cv2.imread(f"{segment_path}/{segment_id}_inklabels.png", cv2.IMREAD_GRAYSCALE), dtype=torch.bool)
-
-        assert (self.segment.shape[1:] == self.segment_mask.shape), "The shape of the mask must be the same as the segment!"
-        self.h, self.w = self.segment.shape[1:]
+        self.h, self.w = self.volume.shape(0)[1:]
         self.crop_pos = []
-        for i in range(0, self.h - crop_size, stride):
-            for j in range(0, self.w - crop_size, stride):
-                if self.segment_mask[i:i+crop_size, j:j+crop_size].min() > 0:
+        print("Computing crops...")
+        for i, j in tqdm(
+            list(product(range(0, self.h - crop_size, stride), 
+                    range(0, self.w - crop_size, stride)))):
+            # TODO: the criteria to select crops should be improved
+            if self.mode == "supervised":
+                if self.inklabel[i:i+crop_size, j:j+crop_size].mean() > 0.05: # at least 5% of ink
+                    self.crop_pos.append((i, j))
+            else:
+                if self.segment[:, i:i+crop_size, j:j+crop_size].mean() > 0:
                     self.crop_pos.append((i, j))
         
-    def compute_mean_std(self):
-        masked_segment = self.segment[:, self.segment_mask] # only retrieve the part inside the mask
-        return masked_segment.mean(1), masked_segment.std(1)
-
     def __len__(self):
         return len(self.crop_pos)
 
     def __getitem__(self, idx):
         i, j = self.crop_pos[idx]
         crop = self.segment[:, i:i+self.crop_size, j:j+self.crop_size]
+        crop = torch.tensor(crop, dtype=torch.float32)
         if self.transforms:
             crop = self.transforms(crop)
-        if self.mode != "eval":
+        if self.mode == "pretrain":
             return crop
         else:
-            label = self.inklabels[i:i+self.crop_size, j:j+self.crop_size]
-            return torch.tensor(i), torch.tensor(j), crop, torch.tensor(label, dtype=torch.float32)
+            label = self.inklabel[i:i+self.crop_size, j:j+self.crop_size]
+            return torch.tensor(i), torch.tensor(j), \
+                crop, torch.tensor(label, dtype=torch.float32)

@@ -28,6 +28,8 @@
 
 ### Download segments using rclone
 
+**NOTE: The steps below are not required anymore, now the segments are automatically downloaded by using the [`vesuvius`](https://github.com/ScrollPrize/vesuvius) library.**
+
 The first that you have to do is to download segment data from the vesuvius server. You can download any segment that you want. It is recommended to use `rclone` for faster download speeds.
 
 - Install `rclone`
