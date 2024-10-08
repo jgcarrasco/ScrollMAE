@@ -1,3 +1,4 @@
+import copy
 from itertools import product
 
 import torch
@@ -72,3 +73,16 @@ class SegmentDataset(Dataset):
             label = self.inklabel[i:i+self.crop_size, j:j+self.crop_size]
             return torch.tensor(i), torch.tensor(j), \
                 crop, torch.tensor(label, dtype=torch.float32)
+        
+
+def train_val_split(dataset, p_train=0.9):
+    crop_pos = dataset.crop_pos
+    p_train = 0.8
+    n_cut = int(p_train*len(dataset.crop_pos))
+    train_dataset = copy.copy(dataset)
+    train_dataset.crop_pos = crop_pos[:n_cut]
+
+    val_dataset = copy.copy(dataset)
+    val_dataset.crop_pos = crop_pos[n_cut:]
+
+    return train_dataset, val_dataset
