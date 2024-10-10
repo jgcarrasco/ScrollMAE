@@ -6,6 +6,7 @@ import vesuvius
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from vesuvius import Volume
+from skimage.color import rgb2gray
 
 
 class SegmentDataset(Dataset):
@@ -42,7 +43,12 @@ class SegmentDataset(Dataset):
         self.z_i = z_i; self.z_f = z_f
         # It is faster to load all the segment at once than loading crop by crop
         self.segment = self.volume[z_i:z_f, :, :]
-        self.inklabel = self.volume.inklabel / 255.
+        # NOTE: Temporary fix as the vesuvius library sometimes loads RGB tensors
+        if len(self.volume.inklabel.shape == 3):
+            self.inklabel = rgb2gray(self.volume.inklabel)
+            if self.inklabel.max() == 255: self.inklabel /= 255.
+        else:
+            self.inklabel = self.volume.inklabel / 255.
 
         self.h, self.w = self.volume.shape(0)[1:]
         self.crop_pos = []
