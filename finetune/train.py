@@ -23,8 +23,8 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, train_val_split
 from models import UNet
 
-
-segment_id = 20230827161847
+exp_name = "random"
+segment_id = 20231210121321
 BATCH_SIZE = 32
 NUM_EPOCHS = 1000
 clip_value = 10.0 
@@ -57,7 +57,7 @@ for epoch in range(NUM_EPOCHS):
         crops, labels = crops.cuda(), labels.cuda()
         # Forward and backward passes with mixed precision
         with autocast(device_type=device.type):
-            outputs = model(crops)
+            outputs = model(crops)[:, 0]
             loss = criterion(outputs, labels)
         
         optimizer.zero_grad()
@@ -79,7 +79,7 @@ for epoch in range(NUM_EPOCHS):
                 crops, labels = crops.cuda(), labels.cuda()
                 # Forward and backward passes with mixed precision
                 with autocast(device_type=device.type):
-                    outputs = model(crops)
+                    outputs = model(crops)[:, 0]
                     val_loss += criterion(outputs, labels).item()
         val_loss /= len(val_dataloader)
         train_loss = running_loss/len(train_dataloader)
@@ -89,9 +89,64 @@ for epoch in range(NUM_EPOCHS):
         print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f} Val loss: {val_loss:.4f}')
 
         if val_loss <= best_loss:
-            torch.save(model, "checkpoints/best_model.pth")
+            torch.save(model, f"checkpoints/{exp_name}.pth")
 
 print("Training completed.")
 
+model = torch.load(f"checkpoints/{exp_name}.pth", weights_only=False)
+
+# Visualize training
+import matplotlib.pyplot as plt
+
+# Initialize predictions and counters with the same shape as the cropped ink label segment
+letter_predictions = np.zeros_like(dataset.volume.inklabel, dtype=np.float32)
+counter_predictions = np.zeros_like(dataset.volume.inklabel, dtype=np.float32)
+
+# Set the model to evaluation mode
+model.eval()
+# Disable gradient calculations for validation to save memory and computations
+with torch.no_grad():
+    for i, j, crops, labels in val_dataloader:
+        # Move the data and labels to the GPU
+        crops, labels = crops.cuda(), labels.float().cuda()
+
+        # Forward pass to get model predictions
+        with autocast(device_type=device.type):
+            outputs = model(crops)
+
+        # Apply sigmoid to get probabilities from logits
+        predictions = torch.sigmoid(outputs)
+        # Process each prediction and update the corresponding regions
+        for ii, jj, prediction in zip(i, j, predictions):
+            ii, jj = ii.item(), jj.item()
+            crop_size = dataset.crop_size
+            prediction = prediction.cpu().numpy() # Convert to NumPy array
+            letter_predictions[ii:ii+crop_size, jj:jj+crop_size] += prediction
+            counter_predictions[ii:ii+crop_size, jj:jj+crop_size] += 1
+
+# Avoid division by zero by setting any zero counts to 1
+counter_predictions[counter_predictions == 0] = 1
+
+# Normalize the predictions by the counter values
+letter_predictions /= counter_predictions
+
+# Plotting the Ground Truth and Model Predictions
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+# Ground Truth Label
+ax = axes[0]
+ax.imshow(dataset.volume.inklabel, cmap='gray')
+ax.set_title('Ground Truth Label')
+ax.axis('off')
+
+
+# Model Prediction
+ax = axes[1]
+ax.imshow(letter_predictions, cmap='gray')
+ax.set_title('Model Prediction')
+ax.axis('off')
+
+# Display the plots
+plt.savefig(f"checkpoints/{exp_name}.jpg")
 
 
