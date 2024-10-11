@@ -6,7 +6,6 @@ from itertools import product
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import vesuvius
 from torch.amp import GradScaler, autocast
@@ -21,13 +20,16 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Append the root directory (where dataset.py is located)
 sys.path.append(root_dir)
 from dataset import SegmentDataset, train_val_split
-from models import UNet
+from models import UNet, VanillaUNet
 
 exp_name = "random"
-segment_id = 20231210121321
+segment_id = 20230827161847 # 20231210121321
 BATCH_SIZE = 32
-NUM_EPOCHS = 1000
-clip_value = 10.0 
+NUM_EPOCHS = 50
+clip_value = 10.0
+model_name = "vanilla"
+
+checkpoint_name = f"{exp_name}_{model_name}_{segment_id}"
 
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", crop_size=256, stride=128)
 train_dataset, val_dataset = train_val_split(dataset)
@@ -38,14 +40,14 @@ val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # Check if a GPU is available and if not, use CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = UNet()
+model = UNet() if model_name == "unet" else VanillaUNet()
 model = model.to(device)
 criterion = nn.BCEWithLogitsLoss().to(device)
 optimizer = optim.AdamW(model.parameters(), lr=1e-4)
 scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 scaler = GradScaler()
 
-writer = SummaryWriter()
+writer = SummaryWriter(log_dir=f"runs/{checkpoint_name}/")
 
 model.train()
 best_loss = 1e9
@@ -57,7 +59,7 @@ for epoch in range(NUM_EPOCHS):
         crops, labels = crops.cuda(), labels.cuda()
         # Forward and backward passes with mixed precision
         with autocast(device_type=device.type):
-            outputs = model(crops)[:, 0]
+            outputs = model(crops)
             loss = criterion(outputs, labels)
         
         optimizer.zero_grad()
@@ -72,14 +74,14 @@ for epoch in range(NUM_EPOCHS):
         running_loss += loss.item()
 
     scheduler.step()
-    if (epoch+1)%10 == 0:
+    if (epoch+1)%1 == 0:
         val_loss = 0.
         with torch.no_grad():
             for _, _, crops, labels in val_dataloader:
                 crops, labels = crops.cuda(), labels.cuda()
                 # Forward and backward passes with mixed precision
                 with autocast(device_type=device.type):
-                    outputs = model(crops)[:, 0]
+                    outputs = model(crops)
                     val_loss += criterion(outputs, labels).item()
         val_loss /= len(val_dataloader)
         train_loss = running_loss/len(train_dataloader)
@@ -89,11 +91,12 @@ for epoch in range(NUM_EPOCHS):
         print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f} Val loss: {val_loss:.4f}')
 
         if val_loss <= best_loss:
-            torch.save(model, f"checkpoints/{exp_name}.pth")
+            torch.save(model, f"checkpoints/best_{checkpoint_name}.pth")
+        torch.save(model, f"checkpoints/last_{checkpoint_name}.pth")
 
 print("Training completed.")
 
-model = torch.load(f"checkpoints/{exp_name}.pth", weights_only=False)
+model = torch.load(f"checkpoints/last_{checkpoint_name}.pth", weights_only=False)
 
 # Visualize training
 import matplotlib.pyplot as plt
@@ -147,6 +150,6 @@ ax.set_title('Model Prediction')
 ax.axis('off')
 
 # Display the plots
-plt.savefig(f"checkpoints/{exp_name}.jpg")
+plt.savefig(f"checkpoints/last_{exp_name}.jpg")
 
 

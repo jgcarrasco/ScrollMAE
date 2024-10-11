@@ -42,9 +42,9 @@ class SegmentDataset(Dataset):
         z_f = z_i + z_depth
         self.z_i = z_i; self.z_f = z_f
         # It is faster to load all the segment at once than loading crop by crop
-        self.segment = self.volume[z_i:z_f, :, :]
+        # self.segment = self.volume[z_i:z_f, :, :]
         # NOTE: Temporary fix as the vesuvius library sometimes loads RGB tensors
-        if len(self.volume.inklabel.shape == 3):
+        if len(self.volume.inklabel.shape) == 3:
             self.inklabel = rgb2gray(self.volume.inklabel)
             if self.inklabel.max() == 255: self.inklabel /= 255.
         else:
@@ -61,6 +61,7 @@ class SegmentDataset(Dataset):
                 if self.inklabel[i:i+crop_size, j:j+crop_size].mean() > 0.05: # at least 5% of ink
                     self.crop_pos.append((i, j))
             else:
+                raise Exception
                 if self.segment[:, i:i+crop_size, j:j+crop_size].mean() > 0:
                     self.crop_pos.append((i, j))
         
@@ -69,7 +70,7 @@ class SegmentDataset(Dataset):
 
     def __getitem__(self, idx):
         i, j = self.crop_pos[idx]
-        crop = self.segment[:, i:i+self.crop_size, j:j+self.crop_size]
+        crop = self.volume[self.z_i:self.z_f, i:i+self.crop_size, j:j+self.crop_size]
         crop = torch.tensor(crop, dtype=torch.float32)
         if self.transforms:
             crop = self.transforms(crop)
