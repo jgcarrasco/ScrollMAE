@@ -13,3 +13,4 @@ checkpoints/
 runs/
 exp_logs/
 explore.ipynb
+example2_ink_detection.ipynb

@@ -117,7 +117,7 @@ class UNet(nn.Module):
             backbone_kwargs=None,
             backbone_indices=None,
             decoder_use_batchnorm=True,
-            decoder_channels=(256, 128, 64, 32, 16),
+            decoder_channels=(512, 256, 128, 64, 32),
             in_chans=20,
             num_classes=1,
             center=False,
@@ -147,7 +147,7 @@ class UNet(nn.Module):
         x = self.encoder(x)
         x.reverse()  # torchscript doesn't work with [::-1]
         x = self.decoder(x)
-        return x[:, 0, :, :]
+        return x
 
 
 class Conv2dBnAct(nn.Module):

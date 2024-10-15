@@ -16,7 +16,7 @@ import dist
 class Args(Tap):
     # environment
     exp_name: str = 'debug' # we use the debug option bc we only use one GPU
-    exp_dir: str = "exp_logs/supalong" # will be created if not exists
+    exp_dir: str = "exp_logs/supalong2" # will be created if not exists
     data_path: int = 20231210121321 # 'data/imagenette2-320/' 20231210121321.zarr (large segment) 20230519195952.zarr (tau)
     init_weight: str = ''   # use some checkpoint as model weight initialization; ONLY load model weights
     resume_from: str = ''   # resume the experiment from some checkpoint.pth; load model weights, optimizer states, and last epoch
@@ -39,7 +39,7 @@ class Args(Tap):
     base_lr: float = 2e-4
     wd: float = 0.04
     wde: float = 0.2
-    ep: int = 1600 * 20 # 4
+    ep: int = 1600 * 30 # 4
     wp_ep: int = 40
     clip: int = 5.
     opt: str = 'lamb'

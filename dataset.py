@@ -53,17 +53,10 @@ class SegmentDataset(Dataset):
         self.h, self.w = self.volume.shape(0)[1:]
         self.crop_pos = []
         print("Computing crops...")
-        for i, j in tqdm(
-            list(product(range(0, self.h - crop_size, stride), 
-                    range(0, self.w - crop_size, stride)))):
+        for i, j in tqdm(list(product(range(0, self.h - crop_size, stride), range(0, self.w - crop_size, stride)))):
             # TODO: the criteria to select crops should be improved
-            if self.mode == "supervised":
-                if self.inklabel[i:i+crop_size, j:j+crop_size].mean() > 0.05: # at least 5% of ink
-                    self.crop_pos.append((i, j))
-            else:
-                raise Exception
-                if self.segment[:, i:i+crop_size, j:j+crop_size].mean() > 0:
-                    self.crop_pos.append((i, j))
+            if self.inklabel[i:i+crop_size, j:j+crop_size].mean() > 0.05: # at least 5% of ink
+                self.crop_pos.append((i, j))
         
     def __len__(self):
         return len(self.crop_pos)
