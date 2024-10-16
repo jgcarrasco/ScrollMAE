@@ -1,6 +1,7 @@
 import copy
 import os
 import sys
+from datetime import datetime
 from itertools import product
 
 import numpy as np
@@ -29,9 +30,11 @@ NUM_EPOCHS = 50
 clip_value = 10.0
 model_name = "vanilla"
 
+current_time = datetime.now().strftime("%b%d_%H-%M-%S")
 checkpoint_name = f"{exp_name}_{model_name}_{segment_id}"
 
-dataset = SegmentDataset(segment_id=segment_id, mode="supervised", crop_size=256, stride=128)
+dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
+                         crop_size=256, stride=128, predownload=True)
 train_dataset, val_dataset = train_val_split(dataset)
 
 # Create the DataLoader for batch processing
@@ -40,14 +43,14 @@ val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # Check if a GPU is available and if not, use CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = UNet() if model_name == "unet" else VanillaUNet()
+model = UNet() if (model_name == "unet") else VanillaUNet()
 model = model.to(device)
 criterion = nn.BCEWithLogitsLoss().to(device)
 optimizer = optim.AdamW(model.parameters(), lr=1e-4)
 scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 scaler = GradScaler()
 
-writer = SummaryWriter(log_dir=f"runs/{checkpoint_name}/")
+writer = SummaryWriter(log_dir=f"runs/{checkpoint_name}/{current_time}")
 
 model.train()
 best_loss = 1e9

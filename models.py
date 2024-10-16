@@ -147,7 +147,7 @@ class UNet(nn.Module):
         x = self.encoder(x)
         x.reverse()  # torchscript doesn't work with [::-1]
         x = self.decoder(x)
-        return x
+        return x[:, 0, :, :]
 
 
 class Conv2dBnAct(nn.Module):

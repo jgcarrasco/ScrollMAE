@@ -27,7 +27,7 @@ class SegmentDataset(Dataset):
     be used.
     """
 
-    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
+    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None, predownload=False):
 
         self.transforms = transforms
 
@@ -36,7 +36,7 @@ class SegmentDataset(Dataset):
         self.crop_size = crop_size
         self.mode = mode
         print("Loading volume...")
-        self.volume = Volume(segment_id, normalize=True, cache=True) # (depth, height, width)
+        self.volume = Volume(segment_id, normalize=True, cache=True, cache_pool=1e11) # (depth, height, width)
         # take the z_depth central layers
         z_i = self.volume.shape(0)[0] // 2 - z_depth // 2
         z_f = z_i + z_depth
@@ -51,6 +51,12 @@ class SegmentDataset(Dataset):
             self.inklabel = self.volume.inklabel / 255.
 
         self.h, self.w = self.volume.shape(0)[1:]
+
+        self.predownload = predownload
+        if predownload:
+            print("Pre-downloading...")
+            self.volume = self.volume[z_i:z_f, :, :]
+
         self.crop_pos = []
         print("Computing crops...")
         for i, j in tqdm(list(product(range(0, self.h - crop_size, stride), range(0, self.w - crop_size, stride)))):
@@ -63,7 +69,10 @@ class SegmentDataset(Dataset):
 
     def __getitem__(self, idx):
         i, j = self.crop_pos[idx]
-        crop = self.volume[self.z_i:self.z_f, i:i+self.crop_size, j:j+self.crop_size]
+        if self.predownload:
+            crop = self.volume[:, i:i+self.crop_size, j:j+self.crop_size]
+        else:
+            crop = self.volume[self.z_i:self.z_f, i:i+self.crop_size, j:j+self.crop_size]
         crop = torch.tensor(crop, dtype=torch.float32)
         if self.transforms:
             crop = self.transforms(crop)
