@@ -1,9 +1,11 @@
+from typing import List
 import copy
 import os
 import sys
 from datetime import datetime
 from itertools import product
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
@@ -20,21 +22,24 @@ from vesuvius import Volume
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Append the root directory (where dataset.py is located)
 sys.path.append(root_dir)
-from dataset import SegmentDataset, train_val_split
+from dataset import SegmentDataset, train_val_split, inference_segment
 from models import UNet, VanillaUNet
 
 exp_name = "random"
 segment_id = 20230827161847 # 20231210121321
 BATCH_SIZE = 32
-NUM_EPOCHS = 50
+NUM_EPOCHS = 100
 clip_value = 10.0
-model_name = "vanilla"
+model_name = "unet"
 
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
+
 checkpoint_name = f"{exp_name}_{model_name}_{segment_id}"
+if not os.path.exists(f"checkpoints/{checkpoint_name}"):
+    os.makedirs(f"checkpoints/{checkpoint_name}")
 
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=256, stride=128, predownload=True)
+                         crop_size=256, stride=128)
 train_dataset, val_dataset = train_val_split(dataset)
 
 # Create the DataLoader for batch processing
@@ -94,65 +99,9 @@ for epoch in range(NUM_EPOCHS):
         print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f} Val loss: {val_loss:.4f}')
 
         if val_loss <= best_loss:
-            torch.save(model, f"checkpoints/best_{checkpoint_name}.pth")
-        torch.save(model, f"checkpoints/last_{checkpoint_name}.pth")
+            torch.save(model, f"checkpoints/{checkpoint_name}/best_{checkpoint_name}.pth")
+        torch.save(model, f"checkpoints/{checkpoint_name}/last_{checkpoint_name}.pth")
 
 print("Training completed.")
 
-model = torch.load(f"checkpoints/last_{checkpoint_name}.pth", weights_only=False)
-
-# Visualize training
-import matplotlib.pyplot as plt
-
-# Initialize predictions and counters with the same shape as the cropped ink label segment
-letter_predictions = np.zeros_like(dataset.volume.inklabel, dtype=np.float32)
-counter_predictions = np.zeros_like(dataset.volume.inklabel, dtype=np.float32)
-
-# Set the model to evaluation mode
-model.eval()
-# Disable gradient calculations for validation to save memory and computations
-with torch.no_grad():
-    for i, j, crops, labels in val_dataloader:
-        # Move the data and labels to the GPU
-        crops, labels = crops.cuda(), labels.float().cuda()
-
-        # Forward pass to get model predictions
-        with autocast(device_type=device.type):
-            outputs = model(crops)
-
-        # Apply sigmoid to get probabilities from logits
-        predictions = torch.sigmoid(outputs)
-        # Process each prediction and update the corresponding regions
-        for ii, jj, prediction in zip(i, j, predictions):
-            ii, jj = ii.item(), jj.item()
-            crop_size = dataset.crop_size
-            prediction = prediction.cpu().numpy() # Convert to NumPy array
-            letter_predictions[ii:ii+crop_size, jj:jj+crop_size] += prediction
-            counter_predictions[ii:ii+crop_size, jj:jj+crop_size] += 1
-
-# Avoid division by zero by setting any zero counts to 1
-counter_predictions[counter_predictions == 0] = 1
-
-# Normalize the predictions by the counter values
-letter_predictions /= counter_predictions
-
-# Plotting the Ground Truth and Model Predictions
-fig, axes = plt.subplots(1, 2, figsize=(15, 5))
-
-# Ground Truth Label
-ax = axes[0]
-ax.imshow(dataset.volume.inklabel, cmap='gray')
-ax.set_title('Ground Truth Label')
-ax.axis('off')
-
-
-# Model Prediction
-ax = axes[1]
-ax.imshow(letter_predictions, cmap='gray')
-ax.set_title('Model Prediction')
-ax.axis('off')
-
-# Display the plots
-plt.savefig(f"checkpoints/last_{exp_name}.jpg")
-
-
+inference_segment(checkpoint_name, dataset, [train_dataloader, val_dataloader])

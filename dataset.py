@@ -1,7 +1,15 @@
+from typing import List
 import copy
 from itertools import product
+import tempfile
+import os 
+import pickle
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 import torch
+from torch.amp import autocast
 import vesuvius
 from torch.utils.data import Dataset
 from tqdm import tqdm
@@ -27,7 +35,7 @@ class SegmentDataset(Dataset):
     be used.
     """
 
-    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None, predownload=False):
+    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
 
         self.transforms = transforms
 
@@ -52,10 +60,19 @@ class SegmentDataset(Dataset):
 
         self.h, self.w = self.volume.shape(0)[1:]
 
-        self.predownload = predownload
-        if predownload:
-            print("Pre-downloading...")
+        # Check if the segment has already been downloaded
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, f"{segment_id}.pkl")
+        if os.path.exists(file_path):
+            print(f"Loading segment from local disk: {file_path}")
+            with open(file_path, "rb") as f:
+                self.volume = pickle.load(f)
+        else:
+            # TODO: Loading the same segment with different slices might break this in the future
+            print("Pre-downloading segment...")
             self.volume = self.volume[z_i:z_f, :, :]
+            with open(file_path, "wb") as f:
+                pickle.dump(self.volume, f)
 
         self.crop_pos = []
         print("Computing crops...")
@@ -69,10 +86,7 @@ class SegmentDataset(Dataset):
 
     def __getitem__(self, idx):
         i, j = self.crop_pos[idx]
-        if self.predownload:
-            crop = self.volume[:, i:i+self.crop_size, j:j+self.crop_size]
-        else:
-            crop = self.volume[self.z_i:self.z_f, i:i+self.crop_size, j:j+self.crop_size]
+        crop = self.volume[:, i:i+self.crop_size, j:j+self.crop_size]
         crop = torch.tensor(crop, dtype=torch.float32)
         if self.transforms:
             crop = self.transforms(crop)
@@ -95,3 +109,63 @@ def train_val_split(dataset, p_train=0.9):
     val_dataset.crop_pos = crop_pos[n_cut:]
 
     return train_dataset, val_dataset
+
+
+def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders: List,
+                      savefig=True, show=False):
+
+    model = torch.load(f"checkpoints/last_{checkpoint_name}.pth", weights_only=False)
+    device = next(model.parameters()).device
+    # Initialize predictions and counters with the same shape as the cropped ink label segment
+    letter_predictions = np.zeros_like(dataset.inklabel, dtype=np.float32)
+    counter_predictions = np.zeros_like(dataset.inklabel, dtype=np.float32)
+
+    # Set the model to evaluation mode
+    model.eval()
+    for dataloader in dataloaders:
+        with torch.no_grad():
+            for i, j, crops, labels in dataloader:
+                # Move the data and labels to the GPU
+                crops, labels = crops.cuda(), labels.float().cuda()
+                
+                # Forward pass to get model predictions
+                with autocast(device_type=device.type):
+                    outputs = model(crops)
+
+                # Apply sigmoid to get probabilities from logits
+                predictions = torch.sigmoid(outputs)
+                # Process each prediction and update the corresponding regions
+                for ii, jj, prediction in zip(i, j, predictions):
+                    ii, jj = ii.item(), jj.item()
+                    crop_size = dataset.crop_size
+                    prediction = prediction.cpu().numpy() # Convert to NumPy array
+                    letter_predictions[ii:ii+crop_size, jj:jj+crop_size] += prediction
+                    counter_predictions[ii:ii+crop_size, jj:jj+crop_size] += 1
+
+    # Avoid division by zero by setting any zero counts to 1
+    counter_predictions[counter_predictions == 0] = 1
+
+    # Normalize the predictions by the counter values
+    letter_predictions /= counter_predictions
+
+    # Plotting the Ground Truth and Model Predictions
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+    # Ground Truth Label
+    ax = axes[0]
+    ax.imshow(dataset.inklabel, cmap='gray')
+    ax.set_title('Ground Truth Label')
+    ax.axis('off')
+
+
+    # Model Prediction
+    ax = axes[1]
+    ax.imshow(letter_predictions, cmap='gray')
+    ax.set_title('Model Prediction')
+    ax.axis('off')
+
+    # Display the plots
+    if savefig:
+        plt.savefig(f"checkpoints/{checkpoint_name}/{checkpoint_name}.jpg")
+    if show:
+        plt.show()
