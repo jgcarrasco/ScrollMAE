@@ -5,12 +5,14 @@ from datetime import datetime
 from itertools import product
 from typing import List
 
+import albumentations as A
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import vesuvius
+from albumentations.pytorch import ToTensorV2
 from torch.amp import GradScaler, autocast
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -18,7 +20,6 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from vesuvius import Volume
-from torchvision import transforms
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Append the root directory (where dataset.py is located)
@@ -42,10 +43,25 @@ if not os.path.exists(f"checkpoints/{checkpoint_name}"):
     os.makedirs(f"checkpoints/{checkpoint_name}")
 
 if data_augmentation:
-    transforms_ = transforms.Compose([
-            transforms.RandomResizedCrop(224, scale=(0.67, 1.0)),
-            transforms.RandomHorizontalFlip(p=0.5),
-        ])
+    transforms_ = A.Compose([
+        A.RandomResizedCrop(224, 224, scale=(0.67, 1.0)),
+        A.HorizontalFlip(p=0.5),
+        A.VerticalFlip(p=0.5),
+        A.RandomBrightnessContrast(p=0.75),
+        A.ShiftScaleRotate(rotate_limit=360,shift_limit=0.15,scale_limit=0.15,p=0.75),
+        A.OneOf([
+                A.GaussNoise(var_limit=[10, 50]),
+                A.GaussianBlur(),
+                A.MotionBlur(),
+                ], p=0.4),
+        A.CoarseDropout(max_holes=2, max_width=int(224 * 0.2), max_height=int(224 * 0.2), 
+                        mask_fill_value=0, p=0.5),
+        A.Normalize(
+            mean= [0] * 20,
+            std= [1] * 20
+        ),
+        ToTensorV2(transpose_mask=True),
+    ])
 
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
                          crop_size=320, stride=224 // 2, transforms=transforms_)

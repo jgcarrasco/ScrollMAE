@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import copy
 from itertools import product
 import tempfile
@@ -7,7 +7,8 @@ import pickle
 import matplotlib.pyplot as plt
 import numpy as np
 
-
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 import torch
 from torch.amp import autocast
 import vesuvius
@@ -37,7 +38,16 @@ class SegmentDataset(Dataset):
 
     def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
 
-        self.transforms = transforms
+        if transforms:
+            self.transforms = transforms
+        else:
+            self.transforms = A.Compose([
+                A.Normalize(
+                    mean= [0] * z_depth,
+                    std= [1] * z_depth
+                ),
+                ToTensorV2(transpose_mask=True),
+            ])
 
         if not stride:
             stride = crop_size
@@ -48,7 +58,7 @@ class SegmentDataset(Dataset):
         # take the z_depth central layers
         z_i = self.volume.shape(0)[0] // 2 - z_depth // 2
         z_f = z_i + z_depth
-        self.z_i = z_i; self.z_f = z_f
+        self.z_i = z_i; self.z_f = z_f; self.z_depth = z_depth
         # It is faster to load all the segment at once than loading crop by crop
         # self.segment = self.volume[z_i:z_f, :, :]
         # NOTE: Temporary fix as the vesuvius library sometimes loads RGB tensors
@@ -87,20 +97,28 @@ class SegmentDataset(Dataset):
     def __getitem__(self, idx):
         i, j = self.crop_pos[idx]
         crop = self.volume[:, i:i+self.crop_size, j:j+self.crop_size]
-        crop = torch.tensor(crop, dtype=torch.float32)
+        crop = np.transpose(crop, (1, 2, 0)).astype(np.float32)
         if self.mode == "pretrain":
-            if self.transforms:
-                crop = self.transforms(crop)
+            crop = self.transforms(image=crop)["image"]
             return crop
         else:
-            label = self.inklabel[i:i+self.crop_size, j:j+self.crop_size]
-            label = torch.tensor(label, dtype=torch.float32)
-            if self.transforms:
-                transformed = self.transforms(torch.cat([crop, label[None]]))
-                crop = transformed[:-1]
-                label = transformed[-1]
+            label = self.inklabel[i:i+self.crop_size, j:j+self.crop_size][..., None].astype(np.float32)
+            transformed = self.transforms(image=crop, mask=label)
+            crop = transformed["image"]
+            label = transformed["mask"][0]
             return torch.tensor(i), torch.tensor(j), crop, label
         
+    def set_transforms(self, transforms: Optional[A.Compose]):
+        if transforms:
+            self.transforms = transforms
+        else:
+            self.transforms = A.Compose([
+                A.Normalize(
+                    mean= [0] * self.z_depth,
+                    std= [1] * self.z_depth
+                ),
+                ToTensorV2(transpose_mask=True),
+            ])
 
 def train_val_split(dataset, p_train=0.9):
     crop_pos = dataset.crop_pos
@@ -111,6 +129,7 @@ def train_val_split(dataset, p_train=0.9):
 
     val_dataset = copy.copy(dataset)
     val_dataset.crop_pos = crop_pos[n_cut:]
+    val_dataset.set_transforms(transforms=None)
 
     return train_dataset, val_dataset
 
