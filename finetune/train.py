@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 import vesuvius
 from albumentations.pytorch import ToTensorV2
+from segmentation_models_pytorch.losses import DiceLoss
 from torch.amp import GradScaler, autocast
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -27,7 +28,7 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from models import UNet, VanillaUNet
 
-exp_name = "random"
+exp_name = "frozen" # "random" | "frozen"
 segment_id = 20230827161847 # 20231210121321
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
@@ -64,7 +65,7 @@ if data_augmentation:
     ])
 
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=320, stride=224 // 2, transforms=transforms_)
+                         crop_size=320, stride= 320 // 2, transforms=transforms_)
 train_dataset, val_dataset = train_val_split(dataset)
 
 # Create the DataLoader for batch processing
@@ -75,8 +76,18 @@ val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = UNet() if (model_name == "unet") else VanillaUNet()
 model = model.to(device)
-criterion = nn.BCEWithLogitsLoss().to(device)
-optimizer = optim.AdamW(model.parameters(), lr=1e-4)
+bce = nn.BCEWithLogitsLoss()
+dice = DiceLoss(mode="binary")
+criterion = lambda y_pred, y: 0.5 * bce(y_pred, y) + 0.5 * dice(y_pred, y)
+
+if exp_name == "frozen":
+    for param in model.encoder.parameters():
+        param.requires_grad = False
+    params = model.decoder.parameters()
+else:
+    params = model.parameters()
+
+optimizer = optim.AdamW(params, lr=1e-4)
 scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 scaler = GradScaler()
 
@@ -129,4 +140,7 @@ for epoch in range(NUM_EPOCHS):
 
 print("Training completed.")
 
-inference_segment(checkpoint_name, dataset, [train_dataloader, val_dataloader])
+dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
+                         crop_size=320, stride=224 // 2, transforms=None)
+dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+inference_segment(checkpoint_name, dataset, [dataloader], checkpoint_type="best")
