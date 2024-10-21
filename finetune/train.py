@@ -1,9 +1,9 @@
-from typing import List
 import copy
 import os
 import sys
 from datetime import datetime
 from itertools import product
+from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,11 +18,12 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from vesuvius import Volume
+from torchvision import transforms
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Append the root directory (where dataset.py is located)
 sys.path.append(root_dir)
-from dataset import SegmentDataset, train_val_split, inference_segment
+from dataset import SegmentDataset, inference_segment, train_val_split
 from models import UNet, VanillaUNet
 
 exp_name = "random"
@@ -31,15 +32,23 @@ BATCH_SIZE = 32
 NUM_EPOCHS = 100
 clip_value = 10.0
 model_name = "unet"
+data_augmentation = True
 
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
 
 checkpoint_name = f"{exp_name}_{model_name}_{segment_id}"
+if data_augmentation: checkpoint_name += "_aug"
 if not os.path.exists(f"checkpoints/{checkpoint_name}"):
     os.makedirs(f"checkpoints/{checkpoint_name}")
 
+if data_augmentation:
+    transforms_ = transforms.Compose([
+            transforms.RandomResizedCrop(224, scale=(0.67, 1.0)),
+            transforms.RandomHorizontalFlip(p=0.5),
+        ])
+
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=256, stride=128)
+                         crop_size=320, stride=224 // 2, transforms=transforms_)
 train_dataset, val_dataset = train_val_split(dataset)
 
 # Create the DataLoader for batch processing

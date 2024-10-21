@@ -88,14 +88,18 @@ class SegmentDataset(Dataset):
         i, j = self.crop_pos[idx]
         crop = self.volume[:, i:i+self.crop_size, j:j+self.crop_size]
         crop = torch.tensor(crop, dtype=torch.float32)
-        if self.transforms:
-            crop = self.transforms(crop)
         if self.mode == "pretrain":
+            if self.transforms:
+                crop = self.transforms(crop)
             return crop
         else:
             label = self.inklabel[i:i+self.crop_size, j:j+self.crop_size]
-            return torch.tensor(i), torch.tensor(j), \
-                crop, torch.tensor(label, dtype=torch.float32)
+            label = torch.tensor(label, dtype=torch.float32)
+            if self.transforms:
+                transformed = self.transforms(torch.cat([crop, label[None]]))
+                crop = transformed[:-1]
+                label = transformed[-1]
+            return torch.tensor(i), torch.tensor(j), crop, label
         
 
 def train_val_split(dataset, p_train=0.9):
@@ -112,9 +116,9 @@ def train_val_split(dataset, p_train=0.9):
 
 
 def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders: List,
-                      savefig=True, show=False):
+                      savefig=True, show=False, checkpoint_type="last"):
 
-    model = torch.load(f"checkpoints/last_{checkpoint_name}.pth", weights_only=False)
+    model = torch.load(f"checkpoints/{checkpoint_name}/{checkpoint_type}_{checkpoint_name}.pth", weights_only=False)
     device = next(model.parameters()).device
     # Initialize predictions and counters with the same shape as the cropped ink label segment
     letter_predictions = np.zeros_like(dataset.inklabel, dtype=np.float32)
@@ -137,7 +141,8 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
                 # Process each prediction and update the corresponding regions
                 for ii, jj, prediction in zip(i, j, predictions):
                     ii, jj = ii.item(), jj.item()
-                    crop_size = dataset.crop_size
+                    #crop_size = dataset.crop_size
+                    crop_size = prediction.shape[-1] # TODO: This is not the cleanest way to do this
                     prediction = prediction.cpu().numpy() # Convert to NumPy array
                     letter_predictions[ii:ii+crop_size, jj:jj+crop_size] += prediction
                     counter_predictions[ii:ii+crop_size, jj:jj+crop_size] += 1
