@@ -28,17 +28,27 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from models import UNet, VanillaUNet
 
-exp_name = "frozen" # "random" | "frozen"
+exp_name = "" # "random" | "frozen"
 segment_id = 20230827161847 # 20231210121321
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
 clip_value = 10.0
 model_name = "unet"
 data_augmentation = True
+freeze_encoder = True
+pretrained_path = "/home/jgcarrasco/Projects/ScrollMAE/exp_logs/supalong_small/resnet50_1kpretrained_timm_style.pth"
 
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
 
+backbone_kwargs = None
+
 checkpoint_name = f"{exp_name}_{model_name}_{segment_id}"
+if pretrained_path:
+    backbone_kwargs = {}
+    backbone_kwargs["checkpoint_path"] = pretrained_path 
+    checkpoint_name += "_pretrained"
+if freeze_encoder:
+    checkpoint_name += "_frozen"
 if data_augmentation: checkpoint_name += "_aug"
 if not os.path.exists(f"checkpoints/{checkpoint_name}"):
     os.makedirs(f"checkpoints/{checkpoint_name}")
@@ -74,13 +84,13 @@ val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # Check if a GPU is available and if not, use CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = UNet() if (model_name == "unet") else VanillaUNet()
+model = UNet(backbone_kwargs=backbone_kwargs) if (model_name == "unet") else VanillaUNet()
 model = model.to(device)
 bce = nn.BCEWithLogitsLoss()
 dice = DiceLoss(mode="binary")
 criterion = lambda y_pred, y: 0.5 * bce(y_pred, y) + 0.5 * dice(y_pred, y)
 
-if exp_name == "frozen":
+if freeze_encoder:
     for param in model.encoder.parameters():
         param.requires_grad = False
     params = model.decoder.parameters()
