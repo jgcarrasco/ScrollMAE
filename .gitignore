@@ -10,6 +10,7 @@ data/
 .ipynb
 
 checkpoints/
+pretrain_checkpoints/
 runs/
 exp_logs/
 explore.ipynb
