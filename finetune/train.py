@@ -28,15 +28,15 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from models import UNet, VanillaUNet
 
-exp_name = "" # "random" | "frozen"
+exp_name = "norm" # "random" | "frozen"
 segment_id = 20230827161847 # 20231210121321
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
 clip_value = 10.0
 model_name = "unet"
 data_augmentation = True
-freeze_encoder = True
-pretrained_path = "/home/jgcarrasco/Projects/ScrollMAE/exp_logs/supalong_small/resnet50_1kpretrained_timm_style.pth"
+freeze_encoder = False
+pretrained_path = None # "exp_logs/20230827161847/resnet50_1kpretrained_timm_style.pth"
 
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
 

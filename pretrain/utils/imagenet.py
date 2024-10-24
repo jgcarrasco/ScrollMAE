@@ -17,6 +17,10 @@ from torchvision.datasets.folder import DatasetFolder, IMG_EXTENSIONS
 from torchvision.transforms import transforms
 from torch.utils.data import Dataset
 
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
+
 import sys
 # Add the parent directory of the script to sys.path (go up three levels)
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -76,9 +80,15 @@ def build_dataset_to_pretrain(dataset_path, input_size, dataset_type) -> Dataset
     :return: the dataset used for pretraining
     """
     if dataset_type == "segment":
-        trans_train = transforms.Compose([
-            transforms.RandomResizedCrop(input_size, scale=(0.67, 1.0), interpolation=interpolation),
-            transforms.RandomHorizontalFlip(),
+        trans_train = A.Compose([
+            A.RandomResizedCrop(224, 224, scale=(0.67, 1.0)),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.Normalize(
+                mean= [0] * 20,
+                std= [1] * 20
+            ),
+            ToTensorV2(transpose_mask=True),
         ])
         dataset_train = SegmentDataset(segment_id=dataset_path, transforms=trans_train, mode="pretrain")
     else:
