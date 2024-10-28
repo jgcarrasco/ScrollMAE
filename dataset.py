@@ -72,13 +72,12 @@ class SegmentDataset(Dataset):
 
         # Check if the segment has already been downloaded
         temp_dir = tempfile.gettempdir()
-        file_path = os.path.join(temp_dir, f"{segment_id}.pkl")
+        file_path = os.path.join(temp_dir, f"{segment_id}_{z_depth}.pkl")
         if os.path.exists(file_path):
             print(f"Loading segment from local disk: {file_path}")
             with open(file_path, "rb") as f:
                 self.volume = pickle.load(f)
         else:
-            # TODO: Loading the same segment with different slices might break this in the future
             print("Pre-downloading segment...")
             self.volume = self.volume[z_i:z_f, :, :]
             with open(file_path, "wb") as f:
@@ -187,7 +186,7 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
     ax.imshow(letter_predictions, cmap='gray')
     ax.set_title('Model Prediction')
     ax.axis('off')
-
+    plt.tight_layout()
     # Display the plots
     if savefig:
         plt.savefig(f"checkpoints/{checkpoint_name}/{checkpoint_name}.jpg")

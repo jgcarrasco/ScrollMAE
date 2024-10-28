@@ -8,7 +8,9 @@ This repository contains the first efforts to implement the approach described i
 
 Together with the repo, a report is also included, showing the results of different experiments performed to assess the quality of the learned representations. The idea of this early work is to provide us with a way of evaluating the pretrained encoder so that we are able to improve it until it is able to detect traces of ink in an unsupervised manner.
 
-> It is advised to [read the report](./report/October%20Report.pdf) before executing the code below.
+> **NOTE:** It is advised to [read the report](./report/October%20Report.pdf) before executing the code below. 
+
+> **NOTE 2:** The pretraining part uses a different version of `timm` than the fine-tuning part. Therefore, to fine tune it is required to upgrade the package to one of the latest version, whereas to pretrain we require `timm==0.6.13`. This will be (hopefully) fixed in the future.
 
 ## Pretraining Instructions
 
