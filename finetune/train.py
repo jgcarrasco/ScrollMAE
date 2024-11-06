@@ -28,13 +28,13 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from models import UNet, VanillaUNet
 
-exp_name = "26l" # "random" | "frozen"
+exp_name = "20l"
 segment_id = 20231210121321 # 20230827161847 20231210121321
 BATCH_SIZE = 32
 NUM_EPOCHS = 200
 clip_value = 10.0
 model_name = "unet"
-n_layers = 26
+n_layers = 20
 data_augmentation = True
 freeze_encoder = False
 pretrained_path = None # "exp_logs/20230827161847/resnet50_1kpretrained_timm_style.pth"
@@ -69,14 +69,14 @@ if data_augmentation:
         A.CoarseDropout(max_holes=2, max_width=int(224 * 0.2), max_height=int(224 * 0.2), 
                         mask_fill_value=0, p=0.5),
         A.Normalize(
-            mean= [0] * 20,
-            std= [1] * 20
+            mean= [0] * n_layers,
+            std= [1] * n_layers
         ),
         ToTensorV2(transpose_mask=True),
     ])
 
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=320, stride= 320 // 2, transforms=transforms_, z_depth=n_layers)
+                         crop_size=320, stride= 320 // 8, transforms=transforms_, z_depth=n_layers)
 train_dataset, val_dataset = train_val_split(dataset)
 
 # Create the DataLoader for batch processing

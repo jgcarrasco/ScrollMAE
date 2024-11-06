@@ -90,7 +90,8 @@ def build_dataset_to_pretrain(dataset_path, input_size, dataset_type) -> Dataset
             ),
             ToTensorV2(transpose_mask=True),
         ])
-        dataset_train = SegmentDataset(segment_id=dataset_path, transforms=trans_train, mode="pretrain")
+        dataset_train = SegmentDataset(segment_id=dataset_path, transforms=trans_train, mode="pretrain",
+                                       crop_size=320, stride=320 // 8)
     else:
         trans_train = transforms.Compose([
             transforms.RandomResizedCrop(input_size, scale=(0.67, 1.0), interpolation=interpolation),
