@@ -7,7 +7,7 @@
 import torch
 from timm import create_model
 from timm.loss import SoftTargetCrossEntropy
-from timm.models.layers import drop
+from timm.layers import drop
 
 
 from models.convnext import ConvNeXt
