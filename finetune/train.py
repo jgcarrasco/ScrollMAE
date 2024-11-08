@@ -31,13 +31,13 @@ from models import UNet, VanillaUNet
 exp_name = "20l"
 segment_id = 20231210121321 # 20230827161847 20231210121321
 BATCH_SIZE = 32
-NUM_EPOCHS = 200
+NUM_EPOCHS = 100
 clip_value = 10.0
 model_name = "unet"
 n_layers = 20
 data_augmentation = True
 freeze_encoder = False
-pretrained_path = None # "exp_logs/20230827161847/resnet50_1kpretrained_timm_style.pth"
+pretrained_path = None #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
 
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
 
@@ -74,11 +74,9 @@ if data_augmentation:
         ),
         ToTensorV2(transpose_mask=True),
     ])
-
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=320, stride= 320 // 8, transforms=transforms_, z_depth=n_layers)
+                         crop_size=320, stride= 320 // 3, transforms=transforms_, z_depth=n_layers)
 train_dataset, val_dataset = train_val_split(dataset)
-
 # Create the DataLoader for batch processing
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -110,7 +108,10 @@ best_loss = 1e9
 for epoch in range(NUM_EPOCHS):
     running_loss = 0.0
     
-    for i, j, crops, labels in train_dataloader:
+    for i, j, crops, labels in tqdm(train_dataloader,
+                                    desc="Training...",
+                                    total=len(train_dataloader), 
+                                    leave=False):
         crops, labels = crops.cuda(), labels.cuda()
         # Forward and backward passes with mixed precision
         with autocast(device_type=device.type):
@@ -132,7 +133,10 @@ for epoch in range(NUM_EPOCHS):
     if (epoch+1)%1 == 0:
         val_loss = 0.
         with torch.no_grad():
-            for _, _, crops, labels in val_dataloader:
+            for _, _, crops, labels in tqdm(val_dataloader,
+                                            desc="Validating...",
+                                            total=len(val_dataloader),
+                                            leave=False):
                 crops, labels = crops.cuda(), labels.cuda()
                 # Forward and backward passes with mixed precision
                 with autocast(device_type=device.type):
@@ -152,6 +156,6 @@ for epoch in range(NUM_EPOCHS):
 print("Training completed.")
 
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=320, stride=224 // 2, transforms=None, z_depth=n_layers)
-dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+                         crop_size=224, stride=224 // 3, transforms=None, z_depth=n_layers)
+dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 inference_segment(checkpoint_name, dataset, [dataloader], checkpoint_type="best")
