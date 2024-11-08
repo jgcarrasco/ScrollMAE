@@ -26,7 +26,7 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Append the root directory (where dataset.py is located)
 sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
-from models import UNet, VanillaUNet
+from model import UNet, VanillaUNet
 
 exp_name = "20l"
 segment_id = 20231210121321 # 20230827161847 20231210121321
