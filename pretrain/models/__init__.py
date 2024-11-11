@@ -33,6 +33,7 @@ for clz in (torch.nn.CrossEntropyLoss, SoftTargetCrossEntropy, drop.DropPath):
 
 pretrain_default_model_kwargs = {
     'your_convnet': dict(),
+    "resnet_3d_50": dict(),
     'resnet50': dict(drop_path_rate=0.05, in_chans=20), # this is the default model, we just have to modify the in_chans argument
     'resnet101': dict(drop_path_rate=0.08),
     'resnet152': dict(drop_path_rate=0.10),
