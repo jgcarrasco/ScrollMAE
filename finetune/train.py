@@ -26,18 +26,19 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Append the root directory (where dataset.py is located)
 sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
-from model import UNet, VanillaUNet
+from model import UNet, UNet3D
 
 exp_name = "20l"
-segment_id = 20231210121321 # 20230827161847 20231210121321
+segment_id = 20230827161847 # 20230827161847 20231210121321
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
 clip_value = 10.0
-model_name = "unet"
+model_name = "unet3d"
+scale_factor = 0.25
 n_layers = 20
 data_augmentation = True
 freeze_encoder = False
-pretrained_path = None #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
+pretrained_path = "pretrain_checkpoints/3d_20230827161847/resnet_3d_50_1kpretrained_timm_style.pth" #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
 
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
 
@@ -75,7 +76,8 @@ if data_augmentation:
         ToTensorV2(transpose_mask=True),
     ])
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=320, stride= 320 // 3, transforms=transforms_, z_depth=n_layers)
+                         crop_size=320, stride= 320 // 3, transforms=transforms_, 
+                         z_depth=n_layers, scale_factor=scale_factor)
 train_dataset, val_dataset = train_val_split(dataset)
 # Create the DataLoader for batch processing
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -83,7 +85,11 @@ val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # Check if a GPU is available and if not, use CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = UNet(in_chans=n_layers, backbone_kwargs=backbone_kwargs)
+if model_name == "unet":
+    model = UNet(in_chans=n_layers, backbone_kwargs=backbone_kwargs)
+elif model_name == "unet3d":
+    model = UNet3D(in_chans=n_layers, backbone_kwargs=backbone_kwargs)
+
 model = model.to(device)
 bce = nn.BCEWithLogitsLoss()
 dice = DiceLoss(mode="binary")

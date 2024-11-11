@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from timm import create_model
+from timm.models.registry import register_model
 
 
 # This function initializes the weights in an intelligent way
@@ -499,31 +500,54 @@ class Decoder(nn.Module):
         return mask
 
 
+@register_model
+def resnet_3d_50(pretrained=False, **kwargs):
+    return generate_model(model_depth=50, n_input_channels=1, n_classes=1, forward_features=True, **kwargs)
+
+
+class UNet3D(nn.Module):
+    def __init__(
+            self,
+            backbone='resnet_3d_50',
+            backbone_kwargs=None,
+            backbone_indices=None,
+            in_chans=20,
+            num_classes=1,
+            center=False,
+            norm_layer=nn.BatchNorm2d,
+    ):
+        super().__init__()
+        backbone_kwargs = backbone_kwargs or {}
+        encoder = create_model(
+            backbone, features_only=True, out_indices=backbone_indices, in_chans=in_chans,
+            pretrained=False, **backbone_kwargs)
+        self.encoder = encoder
+
+        self.decoder = Decoder(encoder_dims=[f.size(1) for f in encoder(torch.randn(1, 1, 1, 224, 224))], upscale=1)
+
+    def forward(self, x: torch.Tensor):
+        # input can be either (batch_size, depth, height, width) or (batch_size, 1, depth, height, width)
+        # if it has the first format, convert to the second one
+        if len(x.shape) < 5:
+            x = x.unsqueeze(1)
+        features = self.encoder(x)
+        features_pooled = [torch.max(f, dim=2)[0] for f in features]
+        pred = self.decoder(features_pooled) # (batch_size, 1, height, width)
+        return pred[:, 0, :, :]
+
+
 if __name__ == "__main__":
     # when `forward_features=True` it only returns the intermediate activations. It doesn't 
     # use the MLP at all so the `n_classes` argument can be set to 1 (it's not used)
     backbone = generate_model(model_depth=50, n_input_channels=1, forward_features=True, n_classes=1)
     # Conv3d requires (batch_size, channels, depth, height, width)
-    x = torch.randn(1, 1, 26, 224, 224)
-    features = backbone(x)
-    print("Initial shape", x.shape)
-    for i, f in enumerate(features):
-        print(f"feature {i} shape: {f.shape}")
+    x = torch.randn(1, 1, 20, 224, 224)
     
-    decoder = Decoder(encoder_dims=[f.size(1) for f in backbone(torch.randn(1, 1, 1, 224, 224))], upscale=1)
+    unet3d = UNet3D()
+    unet = UNet()
 
-    features_pooled = [torch.max(f, dim=2)[0] for f in features] # take the max across depth dimension
-    pred = decoder(features_pooled)
+    y_3d = unet3d(x)
+    y = unet(x[:, 0])
 
-    print(f"pred shape: {pred.shape}")
-
-    for model_depth in [10, 18, 34, 50, 101, 152, 200]:
-        print(f"resnet-{model_depth}")
-        print("-----------------")
-        model = generate_model(model_depth=model_depth, n_input_channels=1, forward_features=True, n_classes=1)
-        x = torch.randn(1, 1, 26, 224, 224)
-        f = model(x)
-        print("downsample ratio:", int(x.shape[-1] / f[-1].shape[-1]))
-        print("feature map channels:", [fi.shape[1] for fi in f])
-        print("")
+    print(x.shape, y_3d.shape, y.shape)
             

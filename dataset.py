@@ -1,21 +1,22 @@
-from typing import List, Optional
 import copy
-from itertools import product
-import tempfile
-import os 
+import os
 import pickle
-import matplotlib.pyplot as plt
-import numpy as np
+import tempfile
+from itertools import product
+from typing import List, Optional
 
 import albumentations as A
-from albumentations.pytorch import ToTensorV2
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
-from torch.amp import autocast
+import torch.nn.functional as F
 import vesuvius
+from albumentations.pytorch import ToTensorV2
+from skimage.color import rgb2gray
+from torch.amp import autocast
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from vesuvius import Volume
-from skimage.color import rgb2gray
 
 
 class SegmentDataset(Dataset):
@@ -36,8 +37,10 @@ class SegmentDataset(Dataset):
     be used.
     """
 
-    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
+    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", 
+                 transforms=None, scale_factor=None):
 
+        self.scale_factor = scale_factor
         if transforms:
             self.transforms = transforms
         else:
@@ -105,6 +108,8 @@ class SegmentDataset(Dataset):
             transformed = self.transforms(image=crop, mask=label)
             crop = transformed["image"]
             label = transformed["mask"][0]
+            if self.scale_factor:
+                label = F.interpolate(label[None, None], scale_factor=self.scale_factor)[0, 0]
             return torch.tensor(i), torch.tensor(j), crop, label
         
     def set_transforms(self, transforms: Optional[A.Compose]):
@@ -134,7 +139,7 @@ def train_val_split(dataset, p_train=0.9):
 
 
 def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders: List,
-                      savefig=True, show=False, checkpoint_type="last"):
+                      mask_dataloader=None, savefig=True, show=False, checkpoint_type="last"):
 
     model = torch.load(f"checkpoints/{checkpoint_name}/{checkpoint_type}_{checkpoint_name}.pth", weights_only=False)
     device = next(model.parameters()).device
@@ -146,13 +151,15 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
     model.eval()
     for dataloader in dataloaders:
         with torch.no_grad():
-            for i, j, crops, labels in dataloader:
+            for i, j, crops, labels in tqdm(dataloader, total=len(dataloader)):
                 # Move the data and labels to the GPU
                 crops, labels = crops.cuda(), labels.float().cuda()
                 
                 # Forward pass to get model predictions
                 with autocast(device_type=device.type):
                     outputs = model(crops)
+                    if sf := dataloader.dataset.scale_factor:
+                        outputs = F.interpolate(outputs[:, None], scale_factor=1./sf)[:, 0]
 
                 # Apply sigmoid to get probabilities from logits
                 predictions = torch.sigmoid(outputs)
@@ -170,6 +177,28 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
 
     # Normalize the predictions by the counter values
     letter_predictions /= counter_predictions
+
+    if mask_dataloader:
+        with torch.no_grad():
+            for i, j, crops, labels in tqdm(mask_dataloader, total=len(mask_dataloader)):
+                # Move the data and labels to the GPU
+                crops, labels = crops.cuda(), labels.float().cuda()
+                
+                # Forward pass to get model predictions
+                with autocast(device_type=device.type):
+                    outputs = model(crops)
+                    if sf := dataloader.dataset.scale_factor:
+                        outputs = F.interpolate(outputs[:, None], scale_factor=1./sf)[:, 0]
+
+                # Apply sigmoid to get probabilities from logits
+                predictions = torch.sigmoid(outputs)
+                # Process each prediction and update the corresponding regions
+                for ii, jj, prediction in zip(i, j, predictions):
+                    ii, jj = ii.item(), jj.item()
+                    #crop_size = dataset.crop_size
+                    crop_size = prediction.shape[-1] # TODO: This is not the cleanest way to do this
+                    prediction = prediction.cpu().numpy() # Convert to NumPy array
+                    letter_predictions[ii:ii+crop_size, jj:jj+crop_size] = 0.
 
     # Plotting the Ground Truth and Model Predictions
     fig, axes = plt.subplots(1, 2, figsize=(15, 5))
