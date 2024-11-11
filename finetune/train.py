@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 import vesuvius
 from albumentations.pytorch import ToTensorV2
-from segmentation_models_pytorch.losses import DiceLoss
+from segmentation_models_pytorch.losses import DiceLoss, SoftBCEWithLogitsLoss
 from torch.amp import GradScaler, autocast
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -28,7 +28,7 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from model import UNet, UNet3D
 
-exp_name = "20l"
+exp_name = "soft"
 segment_id = 20230827161847 # 20230827161847 20231210121321
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
@@ -91,7 +91,7 @@ elif model_name == "unet3d":
     model = UNet3D(in_chans=n_layers, backbone_kwargs=backbone_kwargs)
 
 model = model.to(device)
-bce = nn.BCEWithLogitsLoss()
+bce = SoftBCEWithLogitsLoss(smooth_factor=0.15)
 dice = DiceLoss(mode="binary")
 criterion = lambda y_pred, y: 0.5 * bce(y_pred, y) + 0.5 * dice(y_pred, y)
 
