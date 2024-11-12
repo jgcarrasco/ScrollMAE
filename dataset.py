@@ -1,21 +1,31 @@
-from typing import List, Optional
 import copy
+import os
+import subprocess
 from itertools import product
-import tempfile
-import os 
-import pickle
-import matplotlib.pyplot as plt
-import numpy as np
+from typing import List, Optional
 
 import albumentations as A
-from albumentations.pytorch import ToTensorV2
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
+import torch.nn.functional as F
+import zarr
+from albumentations.pytorch import ToTensorV2
+from skimage.color import rgb2gray
+from skimage.io import imread
 from torch.amp import autocast
-import vesuvius
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from vesuvius import Volume
-from skimage.color import rgb2gray
+
+
+def load_img(fp):
+        img = imread(fp)
+        if len(img.shape) == 3:
+            img = rgb2gray(img)
+            if img.max() == 255: img /= 255.
+        else:
+            img = img / 255.
+        return img
 
 
 class SegmentDataset(Dataset):
@@ -36,8 +46,10 @@ class SegmentDataset(Dataset):
     be used.
     """
 
-    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", transforms=None):
+    def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", 
+                 transforms=None, scale_factor=None, data_path="data", criteria="ink"):
 
+        self.scale_factor = scale_factor
         if transforms:
             self.transforms = transforms
         else:
@@ -51,51 +63,34 @@ class SegmentDataset(Dataset):
 
         if not stride:
             stride = crop_size
+        self.stride = stride
         self.crop_size = crop_size
         self.mode = mode
         print("Loading volume...")
-        self.volume = Volume(segment_id, normalize=True, cache=True, cache_pool=1e11) # (depth, height, width)
+        file_path = os.path.join(data_path, f"{segment_id}.zarr")
+        if not os.path.exists(file_path):
+            print("Pre-downloading segment...")
+            subprocess.run(['./download_segment.sh', str(segment_id)])
+
+        self.volume = zarr.load(file_path)[0] / 255. # (depth, height, width)
+        self.inklabel = load_img(f"{file_path}/{segment_id}_inklabels.png")
+        self.mask = load_img(f"{file_path}/{segment_id}_mask.png")
+        
         # take the z_depth central layers
-        z_i = self.volume.shape(0)[0] // 2 - z_depth // 2
+        z_i = self.volume.shape[0] // 2 - z_depth // 2
         z_f = z_i + z_depth
         self.z_i = z_i; self.z_f = z_f; self.z_depth = z_depth
-        # It is faster to load all the segment at once than loading crop by crop
-        # self.segment = self.volume[z_i:z_f, :, :]
-        # NOTE: Temporary fix as the vesuvius library sometimes loads RGB tensors
-        if len(self.volume.inklabel.shape) == 3:
-            self.inklabel = rgb2gray(self.volume.inklabel)
-            if self.inklabel.max() == 255: self.inklabel /= 255.
-        else:
-            self.inklabel = self.volume.inklabel / 255.
+        self.h, self.w = self.volume.shape[1:]
 
-        self.h, self.w = self.volume.shape(0)[1:]
-
-        # Check if the segment has already been downloaded
-        temp_dir = tempfile.gettempdir()
-        file_path = os.path.join(temp_dir, f"{segment_id}_{z_depth}.pkl")
-        if os.path.exists(file_path):
-            print(f"Loading segment from local disk: {file_path}")
-            with open(file_path, "rb") as f:
-                self.volume = pickle.load(f)
-        else:
-            print("Pre-downloading segment...")
-            self.volume = self.volume[z_i:z_f, :, :]
-            with open(file_path, "wb") as f:
-                pickle.dump(self.volume, f)
-
-        self.crop_pos = []
         print("Computing crops...")
-        for i, j in tqdm(list(product(range(0, self.h - crop_size, stride), range(0, self.w - crop_size, stride)))):
-            # TODO: the criteria to select crops should be improved
-            if self.inklabel[i:i+crop_size, j:j+crop_size].mean() > 0.05: # at least 5% of ink
-                self.crop_pos.append((i, j))
-        
+        self.crop_pos = self.compute_crop_pos(criteria)
+    
     def __len__(self):
         return len(self.crop_pos)
 
     def __getitem__(self, idx):
         i, j = self.crop_pos[idx]
-        crop = self.volume[:, i:i+self.crop_size, j:j+self.crop_size]
+        crop = self.volume[self.z_i:self.z_f, i:i+self.crop_size, j:j+self.crop_size]
         crop = np.transpose(crop, (1, 2, 0)).astype(np.float32)
         if self.mode == "pretrain":
             crop = self.transforms(image=crop)["image"]
@@ -105,6 +100,8 @@ class SegmentDataset(Dataset):
             transformed = self.transforms(image=crop, mask=label)
             crop = transformed["image"]
             label = transformed["mask"][0]
+            if self.scale_factor:
+                label = F.interpolate(label[None, None], scale_factor=self.scale_factor)[0, 0]
             return torch.tensor(i), torch.tensor(j), crop, label
         
     def set_transforms(self, transforms: Optional[A.Compose]):
@@ -118,6 +115,21 @@ class SegmentDataset(Dataset):
                 ),
                 ToTensorV2(transpose_mask=True),
             ])
+
+    def compute_crop_pos(self, criteria):
+        crop_pos = []
+        if criteria == "ink":
+            for i, j in tqdm(list(product(range(0, self.h - self.crop_size, self.stride), range(0, self.w - self.crop_size, self.stride)))):
+                if self.inklabel[i:i+self.crop_size, j:j+self.crop_size].mean() > 0.05: # at least 5% of ink
+                    crop_pos.append((i, j))
+        else:
+           for i, j in tqdm(list(product(range(0, self.h - self.crop_size, self.stride), range(0, self.w - self.crop_size, self.stride)))):
+                if self.mask[i:i+self.crop_size, j:j+self.crop_size].min() > 0.0: # the crop is fully inside the mask
+                    crop_pos.append((i, j)) 
+        return crop_pos
+    
+    def recompute_crop_pos(self, criteria):
+        self.crop_pos = self.compute_crop_pos(criteria)
 
 def train_val_split(dataset, p_train=0.9):
     crop_pos = dataset.crop_pos
@@ -134,7 +146,7 @@ def train_val_split(dataset, p_train=0.9):
 
 
 def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders: List,
-                      savefig=True, show=False, checkpoint_type="last"):
+                      mask_dataloader=None, savefig=True, show=False, checkpoint_type="last"):
 
     model = torch.load(f"checkpoints/{checkpoint_name}/{checkpoint_type}_{checkpoint_name}.pth", weights_only=False)
     device = next(model.parameters()).device
@@ -146,13 +158,15 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
     model.eval()
     for dataloader in dataloaders:
         with torch.no_grad():
-            for i, j, crops, labels in dataloader:
+            for i, j, crops, labels in tqdm(dataloader, total=len(dataloader)):
                 # Move the data and labels to the GPU
                 crops, labels = crops.cuda(), labels.float().cuda()
                 
                 # Forward pass to get model predictions
                 with autocast(device_type=device.type):
                     outputs = model(crops)
+                    if sf := dataloader.dataset.scale_factor:
+                        outputs = F.interpolate(outputs[:, None], scale_factor=1./sf)[:, 0]
 
                 # Apply sigmoid to get probabilities from logits
                 predictions = torch.sigmoid(outputs)
@@ -170,6 +184,28 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
 
     # Normalize the predictions by the counter values
     letter_predictions /= counter_predictions
+
+    if mask_dataloader:
+        with torch.no_grad():
+            for i, j, crops, labels in tqdm(mask_dataloader, total=len(mask_dataloader)):
+                # Move the data and labels to the GPU
+                crops, labels = crops.cuda(), labels.float().cuda()
+                
+                # Forward pass to get model predictions
+                with autocast(device_type=device.type):
+                    outputs = model(crops)
+                    if sf := dataloader.dataset.scale_factor:
+                        outputs = F.interpolate(outputs[:, None], scale_factor=1./sf)[:, 0]
+
+                # Apply sigmoid to get probabilities from logits
+                predictions = torch.sigmoid(outputs)
+                # Process each prediction and update the corresponding regions
+                for ii, jj, prediction in zip(i, j, predictions):
+                    ii, jj = ii.item(), jj.item()
+                    #crop_size = dataset.crop_size
+                    crop_size = prediction.shape[-1] # TODO: This is not the cleanest way to do this
+                    prediction = prediction.cpu().numpy() # Convert to NumPy array
+                    letter_predictions[ii:ii+crop_size, jj:jj+crop_size] = 0.
 
     # Plotting the Ground Truth and Model Predictions
     fig, axes = plt.subplots(1, 2, figsize=(15, 5))

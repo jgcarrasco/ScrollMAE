@@ -16,22 +16,23 @@ import dist
 class Args(Tap):
     # environment
     exp_name: str = 'debug' # we use the debug option bc we only use one GPU
-    exp_dir: str = "pretrain_checkpoints/aug_20231210121321" # will be created if not exists
-    data_path: int = 20231210121321 # 20230827161847 (tutorial) 20231210121321 (large segment) 20230519195952 (tau)
+    exp_dir: str = "pretrain_checkpoints/3d_30l_20230827161847" # will be created if not exists
+    data_path: int = 20230827161847 # 20230827161847 (tutorial) 20231210121321 (large segment) 20230519195952 (tau)
     init_weight: str = ''   # use some checkpoint as model weight initialization; ONLY load model weights
-    resume_from: str = "" #'pretrain_checkpoints/aug_20231210121321/resnet50_withdecoder_1kpretrained_spark_style.pth'   # resume the experiment from some checkpoint.pth; load model weights, optimizer states, and last epoch
+    resume_from: str = "pretrain_checkpoints/3d_30l_20230827161847/resnet_3d_50_withdecoder_1kpretrained_spark_style.pth" # resume the experiment from some checkpoint.pth; load model weights, optimizer states, and last epoch
+    n_layers: int = 30
     dataset_type: str = "segment" # [image, segment]
 
     # SparK hyperparameters
     mask: float = 0.6   # mask ratio, should be in (0, 1)
     
     # encoder hyperparameters
-    model: str = 'resnet50'
+    model: str = "resnet_3d_50" #'resnet50'
     input_size: int = 224
     sbn: bool = True
     
     # data hyperparameters
-    bs: int = 64
+    bs: int = 8
     dataloader_workers: int = 8
     
     # pre-training hyperparameters
@@ -39,7 +40,7 @@ class Args(Tap):
     base_lr: float = 2e-4
     wd: float = 0.04
     wde: float = 0.2
-    ep: int = 1600 * 50 * 2 # 4
+    ep: int = 2000 #1600 * 50 * 2 # 4
     wp_ep: int = 40
     clip: int = 5.
     opt: str = 'lamb'

@@ -42,7 +42,7 @@ def main_pt():
     
     # build data
     print(f'[build data for pre-training] ...\n')
-    dataset_train = build_dataset_to_pretrain(args.data_path, args.input_size, args.dataset_type)
+    dataset_train = build_dataset_to_pretrain(args.data_path, args.input_size, args.dataset_type, args.n_layers)
     data_loader_train = DataLoader(
         dataset=dataset_train, num_workers=args.dataloader_workers, pin_memory=True,
         batch_sampler=DistInfiniteBatchSampler(
@@ -55,7 +55,7 @@ def main_pt():
     
     # build encoder and decoder
     enc: encoder.SparseEncoder = build_sparse_encoder(args.model, input_size=args.input_size, sbn=args.sbn, drop_path_rate=args.dp, verbose=False)
-    dec = LightDecoder(enc.downsample_raito, sbn=args.sbn)
+    dec = LightDecoder(enc.downsample_raito, args.n_layers, sbn=args.sbn)
     model_without_ddp = SparK(
         sparse_encoder=enc, dense_decoder=dec, mask_ratio=args.mask,
         densify_norm=args.densify_norm, sbn=args.sbn,

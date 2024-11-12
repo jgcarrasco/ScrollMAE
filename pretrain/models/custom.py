@@ -9,6 +9,14 @@ import torch.nn as nn
 from typing import List
 from timm.models.registry import register_model
 
+import os
+import sys
+# Add the parent directory of the script to sys.path (go up three levels)
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+# Append the root directory (where dataset.py is located)
+sys.path.append(root_dir)
+from model import ResNet3D, generate_model
+
 
 class YourConvNet(nn.Module):
     """
@@ -24,7 +32,7 @@ class YourConvNet(nn.Module):
         :return: the TOTAL downsample ratio of the ConvNet.
         E.g., for a ResNet-50, this should return 32.
         """
-        raise NotImplementedError
+        return NotImplementedError
     
     def get_feature_map_channels(self) -> List[int]:
         """
@@ -56,10 +64,48 @@ def your_convnet_small(pretrained=False, **kwargs):
     return YourConvNet(**kwargs)
 
 
+def get_downsample_ratio(self: ResNet3D) -> int:
+    return 32
+
+def get_feature_map_channels(self: ResNet3D) -> List[int]:
+    # `self.feature_info` is maintained by `timm`
+    return [256, 512, 1024, 2048]
+
+def forward(self, x, hierarchical=False):
+    if len(x.shape) < 5:
+        x = x.unsqueeze(1)
+    x = self.conv1(x)
+    x = self.bn1(x)
+    x = self.relu(x)
+    if not self.no_max_pool:
+        x = self.maxpool(x)
+
+    x1 = self.layer1(x)
+    x2 = self.layer2(x1)
+    x3 = self.layer3(x2)
+    x4 = self.layer4(x3)
+    if hierarchical:
+        return [x1.max(dim=2)[0],x2.max(dim=2)[0],x3.max(dim=2)[0],x4.max(dim=2)[0]]
+    else:
+        x = self.avgpool(x4)
+
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+
+        return x
+
+ResNet3D.get_downsample_ratio = get_downsample_ratio
+ResNet3D.get_feature_map_channels = get_feature_map_channels
+ResNet3D.forward = forward
+
+@register_model
+def resnet_3d_50(pretrained=False, **kwargs):
+    return generate_model(model_depth=50, n_input_channels=1, n_classes=1, **kwargs)
+
 @torch.no_grad()
 def convnet_test():
     from timm.models import create_model
-    cnn = create_model('your_convnet_small')
+    cnn = create_model('resnet_3d_50')
     print('get_downsample_ratio:', cnn.get_downsample_ratio())
     print('get_feature_map_channels:', cnn.get_feature_map_channels())
     
