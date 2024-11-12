@@ -28,7 +28,7 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from model import UNet, UNet3D
 
-exp_name = "soft"
+exp_name = "val"
 segment_id = 20230827161847 # 20230827161847 20231210121321
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
@@ -78,7 +78,7 @@ if data_augmentation:
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
                          crop_size=320, stride= 320 // 3, transforms=transforms_, 
                          z_depth=n_layers, scale_factor=scale_factor)
-train_dataset, val_dataset = train_val_split(dataset)
+train_dataset, val_dataset = train_val_split(dataset, criteria="ink")
 # Create the DataLoader for batch processing
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -157,6 +157,7 @@ for epoch in range(NUM_EPOCHS):
 
         if val_loss <= best_loss:
             torch.save(model, f"checkpoints/{checkpoint_name}/best_{checkpoint_name}.pth")
+            inference_segment(checkpoint_name, dataset, [val_dataloader], checkpoint_type="best")
         torch.save(model, f"checkpoints/{checkpoint_name}/last_{checkpoint_name}.pth")
 
 print("Training completed.")
@@ -164,4 +165,4 @@ print("Training completed.")
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
                          crop_size=224, stride=224 // 3, transforms=None, z_depth=n_layers)
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
-inference_segment(checkpoint_name, dataset, [dataloader], checkpoint_type="best")
+inference_segment(checkpoint_name, dataset, [dataloader], checkpoint_type="final")

@@ -131,15 +131,16 @@ class SegmentDataset(Dataset):
     def recompute_crop_pos(self, criteria):
         self.crop_pos = self.compute_crop_pos(criteria)
 
-def train_val_split(dataset, p_train=0.9):
+def train_val_split(dataset, p_train=0.8, criteria="mask"):
     crop_pos = dataset.crop_pos
-    p_train = 0.8
     n_cut = int(p_train*len(dataset.crop_pos))
     train_dataset = copy.copy(dataset)
     train_dataset.crop_pos = crop_pos[:n_cut]
 
     val_dataset = copy.copy(dataset)
-    val_dataset.crop_pos = crop_pos[n_cut:]
+    crop_pos_val = dataset.compute_crop_pos(criteria=criteria)
+    crop_pos_val = crop_pos_val[int(p_train*len(crop_pos_val)):]
+    val_dataset.crop_pos = crop_pos_val
     val_dataset.set_transforms(transforms=None)
 
     return train_dataset, val_dataset
