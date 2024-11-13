@@ -80,7 +80,7 @@ if data_augmentation:
         ),
         ToTensorV2(transpose_mask=True),
     ])
-og_crop_size = crop_size / 0.7 # as we do a random resized crop, we start with larger crops
+og_crop_size = int(crop_size / 0.7) # as we do a random resized crop, we start with larger crops
 if scheme == "validation":
     dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
                             crop_size=og_crop_size, stride= og_crop_size // 3, transforms=transforms_, 
@@ -151,7 +151,7 @@ for epoch in range(NUM_EPOCHS):
         running_loss += loss.item()
 
     scheduler.step()
-    if (epoch+1) % validate_every == 0:
+    if ((epoch+1) % validate_every == 0) and (validate_every != -1):
         val_loss = 0.
         with torch.no_grad():
             for _, _, crops, labels in tqdm(val_dataloader,
