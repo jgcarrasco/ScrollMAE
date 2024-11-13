@@ -29,17 +29,19 @@ from dataset import SegmentDataset, inference_segment, train_val_split
 from model import UNet, UNet3D
 
 exp_name = "224"
-BATCH_SIZE = 32
-NUM_EPOCHS = 300
-validate_every = 20
+BATCH_SIZE = 16
+NUM_EPOCHS = 5
+validate_every = -1
 segment_id = 20230827161847 # 20230827161847 20231210121321
 model_name = "unet3d"
 n_layers = 20
 crop_size = 224
+stride_fraction = 8
 freeze_encoder = False
-pretrained_path = "pretrain_checkpoints/3d_20230827161847/resnet_3d_50_1kpretrained_timm_style.pth" #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
-scheme = "validation" # "validation" | "iterative"
-inklabel_path = None #"data/20230827161847.zarr/iterative_inklabels/1.png"
+pretrained_path = "pretrain_checkpoints/3d_30l_20230827161847/resnet_3d_50_1kpretrained_timm_style.pth" #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
+scheme = "iterative" # "validation" | "iterative"
+inklabel_path = "data/20230827161847.zarr/iterative_inklabels/3.png"
+save_path = "data/20230827161847.zarr/iterative_inklabels/3_output.png"
 
 # Less commonly changed arguments
 data_augmentation = True
@@ -81,9 +83,10 @@ if data_augmentation:
         ToTensorV2(transpose_mask=True),
     ])
 print("Loading segments...")
-train_dataset, val_dataset = train_val_split(segment_id=segment_id, crop_size=crop_size, z_depth=n_layers,
+train_dataset, val_dataset = train_val_split(segment_id=segment_id, crop_size=crop_size, 
+                                            stride_fraction=stride_fraction, z_depth=n_layers,
                                             scale_factor=scale_factor, transforms_=transforms_, 
-                                            mode="supervised", schema=scheme)
+                                            mode="supervised", schema=scheme, inklabel_path=inklabel_path)
 print(f"Number of crops in train: {len(train_dataset)}")
 print(f"Number of crops in val: {len(val_dataset)}")
 # Create the DataLoader for batch processing
@@ -98,7 +101,7 @@ elif model_name == "unet3d":
     model = UNet3D(in_chans=n_layers, backbone_kwargs=backbone_kwargs)
 
 model = model.to(device)
-bce = SoftBCEWithLogitsLoss(smooth_factor=0.1)
+bce = SoftBCEWithLogitsLoss(smooth_factor=0.15)
 dice = DiceLoss(mode="binary")
 criterion = lambda y_pred, y: 0.5 * bce(y_pred, y) + 0.5 * dice(y_pred, y)
 
@@ -114,14 +117,16 @@ scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 scaler = GradScaler()
 
 writer = SummaryWriter(log_dir=f"runs/{checkpoint_name}/{current_time}")
-
 model.train()
 best_loss = 1e9
 # Training loop
 for epoch in range(NUM_EPOCHS):
     running_loss = 0.0
     
-    for i, j, crops, labels in train_dataloader:
+    for i, j, crops, labels in tqdm(train_dataloader, 
+                                    total=len(train_dataloader),
+                                    desc="Training...",
+                                    leave=False):
         crops, labels = crops.cuda(), labels.cuda()
         # Forward and backward passes with mixed precision
         with autocast(device_type=device.type):
@@ -146,7 +151,10 @@ for epoch in range(NUM_EPOCHS):
     if ((epoch) % validate_every == 0) and (validate_every != -1):
         val_loss = 0.
         with torch.no_grad():
-            for _, _, crops, labels in val_dataloader:
+            for _, _, crops, labels in tqdm(val_dataloader, 
+                                            total=len(val_dataloader),
+                                            desc="Validating...",
+                                            leave=False):
                 crops, labels = crops.cuda(), labels.cuda()
                 # Forward and backward passes with mixed precision
                 with autocast(device_type=device.type):
@@ -162,5 +170,5 @@ for epoch in range(NUM_EPOCHS):
     else:
         print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f}')
 print("Training completed.")
-
-inference_segment(checkpoint_name, val_dataset, [val_dataset], checkpoint_type="final")
+torch.save(model, f"checkpoints/{checkpoint_name}/last_{checkpoint_name}.pth")
+inference_segment(checkpoint_name, val_dataset, [val_dataloader], checkpoint_type="last", save_path=save_path)

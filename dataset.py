@@ -149,19 +149,22 @@ class SegmentDataset(Dataset):
         self.inklabel = load_img(fp)
 
 def train_val_split(segment_id, crop_size, z_depth, scale_factor=0.25, transforms_=None, 
-                    mode="supervised", schema="validation", p_train=0.8):
+                    mode="supervised", schema="validation", p_train=0.8, inklabel_path=None, 
+                    stride_fraction=3):
     # Validation set: either we validate on the whole masked crops (iterative scheme) or on a fraction of
     # masked crops (validation scheme). We don't apply any random resized cropping.
-    val_dataset = SegmentDataset(segment_id=segment_id, crop_size=crop_size, z_depth=z_depth,
+    val_dataset = SegmentDataset(segment_id=segment_id, crop_size=crop_size, z_depth=z_depth, stride=crop_size // stride_fraction,
                                  scale_factor=scale_factor, mode=mode, transforms=None, criteria="mask")
     if schema == "validation":
         val_dataset.crop_pos = val_dataset.crop_pos[:-int(p_train*len(val_dataset.crop_pos))]
     # Training set: either we train on all the inked crops (iterative) or all the inked crops outsize 
     # the val crops (validation)
     og_crop_size = int(crop_size / 0.7) # as we do a random resized crop, we start with larger crops
-    train_dataset = SegmentDataset(segment_id=segment_id, crop_size=og_crop_size, z_depth=z_depth,
+    train_dataset = SegmentDataset(segment_id=segment_id, crop_size=og_crop_size, z_depth=z_depth, stride=og_crop_size//stride_fraction,
                                  scale_factor=scale_factor, mode=mode, transforms=transforms_)
     if schema == "iterative":
+        assert inklabel_path, "Missing path to manual inklabel!"
+        train_dataset.inklabel = load_img(inklabel_path)
         train_dataset.recompute_crop_pos(criteria="ink") # train on all ink crops
     elif schema == "validation":
         train_dataset.recompute_crop_pos(criteria="ink", mask_crops=val_dataset.crop_pos, mask_crop_size=crop_size) # train on all ink crops OUTSIDE the val crops
@@ -170,7 +173,8 @@ def train_val_split(segment_id, crop_size, z_depth, scale_factor=0.25, transform
 
 
 def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders: List,
-                      mask_dataloader=None, savefig=True, show=False, checkpoint_type="last"):
+                      mask_dataloader=None, savefig=True, show=False, checkpoint_type="last",
+                      save_path=None):
 
     model = torch.load(f"checkpoints/{checkpoint_name}/{checkpoint_type}_{checkpoint_name}.pth", weights_only=False)
     device = next(model.parameters()).device
@@ -232,7 +236,7 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
                     letter_predictions[ii:ii+crop_size, jj:jj+crop_size] = 0.
 
     # Plotting the Ground Truth and Model Predictions
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+    fig, axes = plt.subplots(ncols=2)
 
     # Ground Truth Label
     ax = axes[0]
@@ -252,4 +256,9 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
         plt.savefig(f"checkpoints/{checkpoint_name}/{checkpoint_name}.jpg")
     if show:
         plt.show()
+    if save_path:
+        from PIL import Image
+        # For grayscale images (shape: height, width)
+        img = Image.fromarray(np.uint8(letter_predictions * 255), mode='L')
+        img.save(save_path)
     plt.close()
