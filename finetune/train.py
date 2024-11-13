@@ -28,14 +28,14 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from model import UNet, UNet3D
 
-exp_name = "64"
+exp_name = "224"
 BATCH_SIZE = 32
-NUM_EPOCHS = 100
-validate_every = 10
+NUM_EPOCHS = 300
+validate_every = 20
 segment_id = 20230827161847 # 20230827161847 20231210121321
 model_name = "unet3d"
 n_layers = 20
-crop_size = 64
+crop_size = 224
 freeze_encoder = False
 pretrained_path = "pretrain_checkpoints/3d_20230827161847/resnet_3d_50_1kpretrained_timm_style.pth" #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
 scheme = "validation" # "validation" | "iterative"
@@ -80,9 +80,12 @@ if data_augmentation:
         ),
         ToTensorV2(transpose_mask=True),
     ])
+print("Loading segments...")
 train_dataset, val_dataset = train_val_split(segment_id=segment_id, crop_size=crop_size, z_depth=n_layers,
                                             scale_factor=scale_factor, transforms_=transforms_, 
                                             mode="supervised", schema=scheme)
+print(f"Number of crops in train: {len(train_dataset)}")
+print(f"Number of crops in val: {len(val_dataset)}")
 # Create the DataLoader for batch processing
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -118,10 +121,7 @@ best_loss = 1e9
 for epoch in range(NUM_EPOCHS):
     running_loss = 0.0
     
-    for i, j, crops, labels in tqdm(train_dataloader,
-                                    desc="Training...",
-                                    total=len(train_dataloader), 
-                                    leave=False):
+    for i, j, crops, labels in train_dataloader:
         crops, labels = crops.cuda(), labels.cuda()
         # Forward and backward passes with mixed precision
         with autocast(device_type=device.type):
@@ -143,13 +143,10 @@ for epoch in range(NUM_EPOCHS):
     # Logging
     train_loss = running_loss/len(train_dataloader)    
     writer.add_scalar("Loss/train", train_loss, epoch+1)
-    if ((epoch+1) % validate_every == 0) and (validate_every != -1):
+    if ((epoch) % validate_every == 0) and (validate_every != -1):
         val_loss = 0.
         with torch.no_grad():
-            for _, _, crops, labels in tqdm(val_dataloader,
-                                            desc="Validating...",
-                                            total=len(val_dataloader),
-                                            leave=False):
+            for _, _, crops, labels in val_dataloader:
                 crops, labels = crops.cuda(), labels.cuda()
                 # Forward and backward passes with mixed precision
                 with autocast(device_type=device.type):
@@ -161,10 +158,9 @@ for epoch in range(NUM_EPOCHS):
             torch.save(model, f"checkpoints/{checkpoint_name}/best_{checkpoint_name}.pth")
             inference_segment(checkpoint_name, val_dataset, [val_dataloader], checkpoint_type="best")
         torch.save(model, f"checkpoints/{checkpoint_name}/last_{checkpoint_name}.pth")
-    print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f} Val loss: {val_loss:.4f}')
+        print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f} Val loss: {val_loss:.4f}')
+    else:
+        print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f}')
 print("Training completed.")
 
-dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=crop_size, stride=crop_size // 3, transforms=None, z_depth=n_layers)
-dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
-inference_segment(checkpoint_name, val_dataset, [dataloader], checkpoint_type="final")
+inference_segment(checkpoint_name, val_dataset, [val_dataset], checkpoint_type="final")

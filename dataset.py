@@ -70,7 +70,6 @@ class SegmentDataset(Dataset):
         self.stride = stride
         self.crop_size = crop_size
         self.mode = mode
-        print("Loading volume...")
         file_path = os.path.join(data_path, f"{segment_id}.zarr")
         if not os.path.exists(file_path):
             print("Pre-downloading segment...")
@@ -86,7 +85,6 @@ class SegmentDataset(Dataset):
         self.z_i = z_i; self.z_f = z_f; self.z_depth = z_depth
         self.h, self.w = self.volume.shape[1:]
 
-        print("Computing crops...")
         self.crop_pos = self.compute_crop_pos(criteria)
     
     def __len__(self):
@@ -133,12 +131,12 @@ class SegmentDataset(Dataset):
             for (i, j) in mask_crops:
                 mask[i:i+mask_crop_size,j:j+mask_crop_size] = 0.
         if criteria == "ink":
-            for i, j in tqdm(list(product(range(0, self.h - self.crop_size, self.stride), range(0, self.w - self.crop_size, self.stride)))):
+            for i, j in product(range(0, self.h - self.crop_size, self.stride), range(0, self.w - self.crop_size, self.stride)):
                 if self.inklabel[i:i+self.crop_size, j:j+self.crop_size].mean() > 0.05: # at least 5% of ink AND inside mask
                     if mask[i:i+self.crop_size, j:j+self.crop_size].min() > 0.0:
                         crop_pos.append((i, j))
         elif criteria == "mask":
-           for i, j in tqdm(list(product(range(0, self.h - self.crop_size, self.stride), range(0, self.w - self.crop_size, self.stride)))):
+           for i, j in product(range(0, self.h - self.crop_size, self.stride), range(0, self.w - self.crop_size, self.stride)):
                 if mask[i:i+self.crop_size, j:j+self.crop_size].min() > 0.0: # the crop is fully inside the mask
                     crop_pos.append((i, j))
         else: raise NotImplementedError("Criteria not implemented!") 
@@ -248,9 +246,10 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
     ax.imshow(letter_predictions, cmap='gray')
     ax.set_title('Model Prediction')
     ax.axis('off')
-    plt.tight_layout()
+    fig.tight_layout()
     # Display the plots
     if savefig:
         plt.savefig(f"checkpoints/{checkpoint_name}/{checkpoint_name}.jpg")
     if show:
         plt.show()
+    plt.close()
