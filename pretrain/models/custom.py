@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 from typing import List
-from timm.models.registry import register_model
+from timm.models import register_model
 
 import os
 import sys
