@@ -28,18 +28,23 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from model import UNet, UNet3D
 
-exp_name = "val"
-segment_id = 20230827161847 # 20230827161847 20231210121321
+exp_name = "it"
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
-clip_value = 10.0
+validate_every = -1
+segment_id = 20230827161847 # 20230827161847 20231210121321
 model_name = "unet3d"
-scale_factor = 0.25
 n_layers = 20
-data_augmentation = True
+crop_size = 224
 freeze_encoder = False
 pretrained_path = "pretrain_checkpoints/3d_20230827161847/resnet_3d_50_1kpretrained_timm_style.pth" #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
+scheme = "iterative" # "validation" | "iterative"
+inklabel_path = "data/20230827161847.zarr/iterative_inklabels/1.png"
 
+# Less commonly changed arguments
+data_augmentation = True
+scale_factor = 0.25
+clip_value = 10.0
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
 
 backbone_kwargs = None
@@ -57,7 +62,7 @@ if not os.path.exists(f"checkpoints/{checkpoint_name}"):
 
 if data_augmentation:
     transforms_ = A.Compose([
-        A.RandomResizedCrop(224, 224, scale=(0.67, 1.0)),
+        A.RandomResizedCrop(crop_size, crop_size, scale=(0.67, 1.0)),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
         A.RandomBrightnessContrast(p=0.75),
@@ -67,7 +72,7 @@ if data_augmentation:
                 A.GaussianBlur(),
                 A.MotionBlur(),
                 ], p=0.4),
-        A.CoarseDropout(max_holes=2, max_width=int(224 * 0.2), max_height=int(224 * 0.2), 
+        A.CoarseDropout(max_holes=2, max_width=int(crop_size * 0.2), max_height=int(crop_size * 0.2), 
                         mask_fill_value=0, p=0.5),
         A.Normalize(
             mean= [0] * n_layers,
@@ -75,10 +80,20 @@ if data_augmentation:
         ),
         ToTensorV2(transpose_mask=True),
     ])
-dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=320, stride= 320 // 3, transforms=transforms_, 
-                         z_depth=n_layers, scale_factor=scale_factor)
-train_dataset, val_dataset = train_val_split(dataset, criteria="ink")
+og_crop_size = crop_size / 0.7 # as we do a random resized crop, we start with larger crops
+if scheme == "validation":
+    dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
+                            crop_size=og_crop_size, stride= og_crop_size // 3, transforms=transforms_, 
+                            z_depth=n_layers, scale_factor=scale_factor)
+    train_dataset, val_dataset = train_val_split(dataset, criteria="ink")
+elif scheme == "iterative":
+    dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
+                            crop_size=og_crop_size, stride= og_crop_size // 3, transforms=transforms_, 
+                            z_depth=n_layers, scale_factor=scale_factor, criteria="mask")
+    val_dataset = copy.copy(dataset)
+    train_dataset = copy.copy(val_dataset)
+    train_dataset.set_inklabel(fp=inklabel_path)
+    train_dataset.recompute_crop_pos(criteria="ink")
 # Create the DataLoader for batch processing
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -91,7 +106,7 @@ elif model_name == "unet3d":
     model = UNet3D(in_chans=n_layers, backbone_kwargs=backbone_kwargs)
 
 model = model.to(device)
-bce = SoftBCEWithLogitsLoss(smooth_factor=0.15)
+bce = SoftBCEWithLogitsLoss(smooth_factor=0.1)
 dice = DiceLoss(mode="binary")
 criterion = lambda y_pred, y: 0.5 * bce(y_pred, y) + 0.5 * dice(y_pred, y)
 
@@ -136,7 +151,7 @@ for epoch in range(NUM_EPOCHS):
         running_loss += loss.item()
 
     scheduler.step()
-    if (epoch+1)%1 == 0:
+    if (epoch+1) % validate_every == 0:
         val_loss = 0.
         with torch.no_grad():
             for _, _, crops, labels in tqdm(val_dataloader,
@@ -163,6 +178,6 @@ for epoch in range(NUM_EPOCHS):
 print("Training completed.")
 
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                         crop_size=224, stride=224 // 3, transforms=None, z_depth=n_layers)
+                         crop_size=crop_size, stride=crop_size // 3, transforms=None, z_depth=n_layers)
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 inference_segment(checkpoint_name, dataset, [dataloader], checkpoint_type="final")

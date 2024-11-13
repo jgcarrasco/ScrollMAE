@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import zarr
 from albumentations.pytorch import ToTensorV2
-from skimage.color import rgb2gray
+from skimage.color import rgb2gray, rgba2rgb
 from skimage.io import imread
 from torch.amp import autocast
 from torch.utils.data import Dataset
@@ -21,7 +21,11 @@ from tqdm import tqdm
 def load_img(fp):
         img = imread(fp)
         if len(img.shape) == 3:
-            img = rgb2gray(img)
+            try:
+                img = rgb2gray(img)
+            except ValueError:
+                img = rgba2rgb(img)
+                img = rgb2gray(img)
             if img.max() == 255: img /= 255.
         else:
             img = img / 255.
@@ -130,6 +134,9 @@ class SegmentDataset(Dataset):
     
     def recompute_crop_pos(self, criteria):
         self.crop_pos = self.compute_crop_pos(criteria)
+
+    def set_inklabel(self, fp):
+        self.inklabel = load_img(fp)
 
 def train_val_split(dataset, p_train=0.8, criteria="mask"):
     crop_pos = dataset.crop_pos
