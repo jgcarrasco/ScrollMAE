@@ -28,18 +28,18 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from model import UNet, UNet3D
 
-exp_name = "it"
+exp_name = "64"
 BATCH_SIZE = 32
 NUM_EPOCHS = 100
-validate_every = -1
+validate_every = 10
 segment_id = 20230827161847 # 20230827161847 20231210121321
 model_name = "unet3d"
 n_layers = 20
-crop_size = 224
+crop_size = 64
 freeze_encoder = False
 pretrained_path = "pretrain_checkpoints/3d_20230827161847/resnet_3d_50_1kpretrained_timm_style.pth" #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
-scheme = "iterative" # "validation" | "iterative"
-inklabel_path = "data/20230827161847.zarr/iterative_inklabels/1.png"
+scheme = "validation" # "validation" | "iterative"
+inklabel_path = None #"data/20230827161847.zarr/iterative_inklabels/1.png"
 
 # Less commonly changed arguments
 data_augmentation = True
@@ -80,20 +80,9 @@ if data_augmentation:
         ),
         ToTensorV2(transpose_mask=True),
     ])
-og_crop_size = int(crop_size / 0.7) # as we do a random resized crop, we start with larger crops
-if scheme == "validation":
-    dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                            crop_size=og_crop_size, stride= og_crop_size // 3, transforms=transforms_, 
-                            z_depth=n_layers, scale_factor=scale_factor)
-    train_dataset, val_dataset = train_val_split(dataset, criteria="ink")
-elif scheme == "iterative":
-    dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
-                            crop_size=og_crop_size, stride= og_crop_size // 3, transforms=transforms_, 
-                            z_depth=n_layers, scale_factor=scale_factor, criteria="mask")
-    val_dataset = copy.copy(dataset)
-    train_dataset = copy.copy(val_dataset)
-    train_dataset.set_inklabel(fp=inklabel_path)
-    train_dataset.recompute_crop_pos(criteria="ink")
+train_dataset, val_dataset = train_val_split(segment_id=segment_id, crop_size=crop_size, z_depth=n_layers,
+                                            scale_factor=scale_factor, transforms_=transforms_, 
+                                            mode="supervised", schema=scheme)
 # Create the DataLoader for batch processing
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -151,6 +140,9 @@ for epoch in range(NUM_EPOCHS):
         running_loss += loss.item()
 
     scheduler.step()
+    # Logging
+    train_loss = running_loss/len(train_dataloader)    
+    writer.add_scalar("Loss/train", train_loss, epoch+1)
     if ((epoch+1) % validate_every == 0) and (validate_every != -1):
         val_loss = 0.
         with torch.no_grad():
@@ -164,20 +156,15 @@ for epoch in range(NUM_EPOCHS):
                     outputs = model(crops)
                     val_loss += criterion(outputs, labels).item()
         val_loss /= len(val_dataloader)
-        train_loss = running_loss/len(train_dataloader)
-        
-        writer.add_scalar("Loss/train", train_loss, epoch+1)
         writer.add_scalar("Loss/val", val_loss, epoch+1)
-        print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f} Val loss: {val_loss:.4f}')
-
         if val_loss <= best_loss:
             torch.save(model, f"checkpoints/{checkpoint_name}/best_{checkpoint_name}.pth")
-            inference_segment(checkpoint_name, dataset, [val_dataloader], checkpoint_type="best")
+            inference_segment(checkpoint_name, val_dataset, [val_dataloader], checkpoint_type="best")
         torch.save(model, f"checkpoints/{checkpoint_name}/last_{checkpoint_name}.pth")
-
+    print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Train loss: {train_loss:.4f} Val loss: {val_loss:.4f}')
 print("Training completed.")
 
 dataset = SegmentDataset(segment_id=segment_id, mode="supervised", 
                          crop_size=crop_size, stride=crop_size // 3, transforms=None, z_depth=n_layers)
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
-inference_segment(checkpoint_name, dataset, [dataloader], checkpoint_type="final")
+inference_segment(checkpoint_name, val_dataset, [dataloader], checkpoint_type="final")

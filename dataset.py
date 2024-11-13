@@ -120,35 +120,53 @@ class SegmentDataset(Dataset):
                 ToTensorV2(transpose_mask=True),
             ])
 
-    def compute_crop_pos(self, criteria):
+    def compute_crop_pos(self, criteria, mask_crops=None, mask_crop_size=None):
+        """
+        - criteria: either take all the crops containing at least 5% of ink ("ink" criteria) or all the crops
+        inside the mask ("mask" criteria).
+        - mask_crops: Optionally, a list of crops indicating the regions that must not be included when 
+        recomputing the crops.
+        """
         crop_pos = []
+        mask = self.mask.copy()
+        if mask_crops:
+            for (i, j) in mask_crops:
+                mask[i:i+mask_crop_size,j:j+mask_crop_size] = 0.
         if criteria == "ink":
             for i, j in tqdm(list(product(range(0, self.h - self.crop_size, self.stride), range(0, self.w - self.crop_size, self.stride)))):
-                if self.inklabel[i:i+self.crop_size, j:j+self.crop_size].mean() > 0.05: # at least 5% of ink
-                    crop_pos.append((i, j))
-        else:
+                if self.inklabel[i:i+self.crop_size, j:j+self.crop_size].mean() > 0.05: # at least 5% of ink AND inside mask
+                    if mask[i:i+self.crop_size, j:j+self.crop_size].min() > 0.0:
+                        crop_pos.append((i, j))
+        elif criteria == "mask":
            for i, j in tqdm(list(product(range(0, self.h - self.crop_size, self.stride), range(0, self.w - self.crop_size, self.stride)))):
-                if self.mask[i:i+self.crop_size, j:j+self.crop_size].min() > 0.0: # the crop is fully inside the mask
-                    crop_pos.append((i, j)) 
+                if mask[i:i+self.crop_size, j:j+self.crop_size].min() > 0.0: # the crop is fully inside the mask
+                    crop_pos.append((i, j))
+        else: raise NotImplementedError("Criteria not implemented!") 
         return crop_pos
     
-    def recompute_crop_pos(self, criteria):
-        self.crop_pos = self.compute_crop_pos(criteria)
+    def recompute_crop_pos(self, criteria, mask_crops=None, mask_crop_size=None):
+        self.crop_pos = self.compute_crop_pos(criteria, mask_crops, mask_crop_size)
 
     def set_inklabel(self, fp):
         self.inklabel = load_img(fp)
 
-def train_val_split(dataset, p_train=0.8, criteria="mask"):
-    crop_pos = dataset.crop_pos
-    n_cut = int(p_train*len(dataset.crop_pos))
-    train_dataset = copy.copy(dataset)
-    train_dataset.crop_pos = crop_pos[:n_cut]
-
-    val_dataset = copy.copy(dataset)
-    crop_pos_val = dataset.compute_crop_pos(criteria=criteria)
-    crop_pos_val = crop_pos_val[int(p_train*len(crop_pos_val)):]
-    val_dataset.crop_pos = crop_pos_val
-    val_dataset.set_transforms(transforms=None)
+def train_val_split(segment_id, crop_size, z_depth, scale_factor=0.25, transforms_=None, 
+                    mode="supervised", schema="validation", p_train=0.8):
+    # Validation set: either we validate on the whole masked crops (iterative scheme) or on a fraction of
+    # masked crops (validation scheme). We don't apply any random resized cropping.
+    val_dataset = SegmentDataset(segment_id=segment_id, crop_size=crop_size, z_depth=z_depth,
+                                 scale_factor=scale_factor, mode=mode, transforms=None, criteria="mask")
+    if schema == "validation":
+        val_dataset.crop_pos = val_dataset.crop_pos[:-int(p_train*len(val_dataset.crop_pos))]
+    # Training set: either we train on all the inked crops (iterative) or all the inked crops outsize 
+    # the val crops (validation)
+    og_crop_size = int(crop_size / 0.7) # as we do a random resized crop, we start with larger crops
+    train_dataset = SegmentDataset(segment_id=segment_id, crop_size=og_crop_size, z_depth=z_depth,
+                                 scale_factor=scale_factor, mode=mode, transforms=transforms_)
+    if schema == "iterative":
+        train_dataset.recompute_crop_pos(criteria="ink") # train on all ink crops
+    elif schema == "validation":
+        train_dataset.recompute_crop_pos(criteria="ink", mask_crops=val_dataset.crop_pos, mask_crop_size=crop_size) # train on all ink crops OUTSIDE the val crops
 
     return train_dataset, val_dataset
 
