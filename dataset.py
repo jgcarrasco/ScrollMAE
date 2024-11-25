@@ -51,7 +51,7 @@ class SegmentDataset(Dataset):
     """
 
     def __init__(self, segment_id=20231210121321, crop_size=320, z_depth=20, stride=None, mode="pretrain", 
-                 transforms=None, scale_factor=None, data_path="data", criteria="ink"):
+                 transforms=None, scale_factor=None, data_path="data", criteria="ink", mask_path=None):
 
         self.scale_factor = scale_factor
         if transforms:
@@ -74,10 +74,17 @@ class SegmentDataset(Dataset):
         if not os.path.exists(file_path):
             print("Pre-downloading segment...")
             subprocess.run(['./download_segment.sh', str(segment_id)])
-
-        self.volume = zarr.load(file_path)[0] / 255. # (depth, height, width)
+        
+        try:
+            zarr.load(file_path).shape # this fails if the zarr is OME
+            self.volume = zarr.load(file_path)
+        except AttributeError:
+            # if zarr is multi-resolution, load the largest one
+            self.volume = zarr.load(file_path)[0] / 255. # (depth, height, width)
         self.inklabel = load_img(f"{file_path}/{segment_id}_inklabels.png")
-        self.mask = load_img(f"{file_path}/{segment_id}_mask.png")
+        if not mask_path:
+            mask_path = f"{file_path}/{segment_id}_mask.png"
+        self.mask = load_img(mask_path)
         
         # take the z_depth central layers
         z_i = self.volume.shape[0] // 2 - z_depth // 2
@@ -150,18 +157,18 @@ class SegmentDataset(Dataset):
 
 def train_val_split(segment_id, crop_size, z_depth, scale_factor=0.25, transforms_=None, 
                     mode="supervised", schema="validation", p_train=0.8, inklabel_path=None, 
-                    stride_fraction=3):
+                    stride_fraction=3, mask_path=None):
     # Validation set: either we validate on the whole masked crops (iterative scheme) or on a fraction of
     # masked crops (validation scheme). We don't apply any random resized cropping.
     val_dataset = SegmentDataset(segment_id=segment_id, crop_size=crop_size, z_depth=z_depth, stride=crop_size // stride_fraction,
-                                 scale_factor=scale_factor, mode=mode, transforms=None, criteria="mask")
+                                 scale_factor=scale_factor, mode=mode, transforms=None, criteria="mask", mask_path=mask_path)
     if schema == "validation":
         val_dataset.crop_pos = val_dataset.crop_pos[:-int(p_train*len(val_dataset.crop_pos))]
     # Training set: either we train on all the inked crops (iterative) or all the inked crops outsize 
     # the val crops (validation)
     og_crop_size = int(crop_size / 0.7) # as we do a random resized crop, we start with larger crops
     train_dataset = SegmentDataset(segment_id=segment_id, crop_size=og_crop_size, z_depth=z_depth, stride=og_crop_size//stride_fraction,
-                                 scale_factor=scale_factor, mode=mode, transforms=transforms_)
+                                 scale_factor=scale_factor, mode=mode, transforms=transforms_, mask_path=mask_path)
     if schema == "iterative":
         assert inklabel_path, "Missing path to manual inklabel!"
         train_dataset.inklabel = load_img(inklabel_path)
@@ -253,7 +260,7 @@ def inference_segment(checkpoint_name: str, dataset: SegmentDataset, dataloaders
     fig.tight_layout()
     # Display the plots
     if savefig:
-        plt.savefig(f"checkpoints/{checkpoint_name}/{checkpoint_name}.jpg")
+        plt.savefig(f"checkpoints/{checkpoint_name}/{checkpoint_name}.jpg", dpi=300)
     if show:
         plt.show()
     if save_path:

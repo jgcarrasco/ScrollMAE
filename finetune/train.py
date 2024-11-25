@@ -28,20 +28,21 @@ sys.path.append(root_dir)
 from dataset import SegmentDataset, inference_segment, train_val_split
 from model import UNet, UNet3D
 
-exp_name = "224"
+exp_name = "s4n"
 BATCH_SIZE = 16
-NUM_EPOCHS = 5
+NUM_EPOCHS = 100
 validate_every = -1
-segment_id = 20230827161847 # 20230827161847 20231210121321
+segment_id = 20231210132040 # 20230827161847 (small) 20231210121321 (large) 20231210132040 (scroll 4)
 model_name = "unet3d"
-n_layers = 20
-crop_size = 224
+n_layers = 30
+crop_size = 256
 stride_fraction = 8
 freeze_encoder = False
-pretrained_path = "pretrain_checkpoints/3d_30l_20230827161847/resnet_3d_50_1kpretrained_timm_style.pth" #"pretrain_checkpoints/20231210121321/resnet50_1kpretrained_timm_style.pth"
+pretrained_path = "pretrain_checkpoints/20231210132040/resnet_3d_50_1kpretrained_timm_style.pth"
 scheme = "iterative" # "validation" | "iterative"
-inklabel_path = "data/20230827161847.zarr/iterative_inklabels/3.png"
-save_path = "data/20230827161847.zarr/iterative_inklabels/3_output.png"
+inklabel_path = "data/20231210132040.zarr/iterative_inklabels/0.png"
+mask_path = "data/20231210132040.zarr/iterative_inklabels/0_mask.png"
+save_path = "data/20231210132040.zarr/iterative_inklabels/0_output.png"
 
 # Less commonly changed arguments
 data_augmentation = True
@@ -86,7 +87,8 @@ print("Loading segments...")
 train_dataset, val_dataset = train_val_split(segment_id=segment_id, crop_size=crop_size, 
                                             stride_fraction=stride_fraction, z_depth=n_layers,
                                             scale_factor=scale_factor, transforms_=transforms_, 
-                                            mode="supervised", schema=scheme, inklabel_path=inklabel_path)
+                                            mode="supervised", schema=scheme, inklabel_path=inklabel_path,
+                                            mask_path=mask_path)
 print(f"Number of crops in train: {len(train_dataset)}")
 print(f"Number of crops in val: {len(val_dataset)}")
 # Create the DataLoader for batch processing
@@ -112,7 +114,7 @@ if freeze_encoder:
 else:
     params = model.parameters()
 
-optimizer = optim.AdamW(params, lr=1e-4)
+optimizer = optim.AdamW(params, lr=1e-4, weight_decay=1e-6) # weight_decay=1e-6
 scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 scaler = GradScaler()
 

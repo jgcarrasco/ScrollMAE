@@ -68,7 +68,7 @@ class ImageNetDataset(DatasetFolder):
 
 
 
-def build_dataset_to_pretrain(dataset_path, input_size, dataset_type, n_layers) -> Dataset:
+def build_dataset_to_pretrain(dataset_path, input_size, dataset_type, n_layers, criteria, crop_size) -> Dataset:
     """
     You may need to modify this function to return your own dataset.
     Define a new class, a subclass of `Dataset`, to replace our ImageNetDataset.
@@ -81,7 +81,7 @@ def build_dataset_to_pretrain(dataset_path, input_size, dataset_type, n_layers) 
     """
     if dataset_type == "segment":
         trans_train = A.Compose([
-            A.RandomResizedCrop(224, 224, scale=(0.67, 1.0)),
+            A.RandomResizedCrop(crop_size, crop_size, scale=(0.67, 1.0)),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.Normalize(
@@ -90,8 +90,10 @@ def build_dataset_to_pretrain(dataset_path, input_size, dataset_type, n_layers) 
             ),
             ToTensorV2(transpose_mask=True),
         ])
+        og_crop_size = int(crop_size / 0.7)
         dataset_train = SegmentDataset(segment_id=dataset_path, transforms=trans_train, mode="pretrain",
-                                       crop_size=320, stride=320 // 8, z_depth=n_layers)
+                                       crop_size=og_crop_size, stride=og_crop_size // 8, z_depth=n_layers, 
+                                       criteria=criteria)
     else:
         trans_train = transforms.Compose([
             transforms.RandomResizedCrop(input_size, scale=(0.67, 1.0), interpolation=interpolation),
