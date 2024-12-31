@@ -48,6 +48,8 @@ The training is performed by executing `python finetune/train.py`. The following
 - `freeze_encoder`: Whether to freeze the decoder or nor.
 - `pretrained_path`: Path of the pretrained encoder (stored in `exp_log/resnet50_1kpretrained_timm_style.pth`). Set to `None` if we want the encoder to be randomly initialized.
 
+Once that the training run has finished, we will find in `exp_name` the weights of the best model according to the validation loss, the weights of the last model as well as an image of the ink predicted by the best model.
+
 If we want to perform **iterative labeling**, then the following variables are important:
 - `scheme`: Can be either `"validation"` (train on a portion of ink regions, validate on other portion with ink/no ink regions) or `"iterative"` (trains on all the provided inklabels, evals on the region specified by `mask_path`).
 - `inklabel_path`: Path to the initial inklabels.
@@ -59,7 +61,8 @@ Hence, the **process to perform iterative labeling** is as follows:
 2. Take the output of the model, stored in `save_path`, and use your image editor of choice to build new refined ink labels.
 3. Repeat.
 
-Once that the training run has finished, we will find in `exp_name` the weights of the best model according to the validation loss, the weights of the last model as well as an image of the ink predicted by the best model.
+I have uploaded a [pretrained model](https://drive.google.com/file/d/1EW6_pXom5uS-YoD9flvnXd9Dp5ZZUw-W/view?usp=drive_link) on segment `20230827161847` that you can use to test the method.
+
 
 ### Download segments using rclone
 
