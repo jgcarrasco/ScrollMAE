@@ -1,50 +1,42 @@
-import copy
 import os
 import sys
 from datetime import datetime
-from itertools import product
-from typing import List
 
 import albumentations as A
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
-import torch.nn as nn
 import torch.optim as optim
-import vesuvius
 from albumentations.pytorch import ToTensorV2
 from segmentation_models_pytorch.losses import DiceLoss, SoftBCEWithLogitsLoss
 from torch.amp import GradScaler, autocast
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader 
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from vesuvius import Volume
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Append the root directory (where dataset.py is located)
 sys.path.append(root_dir)
-from dataset import SegmentDataset, inference_segment, train_val_split
+from dataset import inference_segment, train_val_split
 from model import UNet, UNet3D
 
-exp_name = "s4n"
+exp_name = "scrollmae"
 BATCH_SIZE = 16
-NUM_EPOCHS = 100
+NUM_EPOCHS = 5
 validate_every = -1
-segment_id = 20231210132040 # 20230827161847 (small) 20231210121321 (large) 20231210132040 (scroll 4)
+segment_id = 20230827161847 # 20230827161847 (small) 20231210121321 (large) 20231210132040 (scroll 4)
+pretrained_path = "pretrain_checkpoints/20230827161847/resnet_3d_50_1kpretrained_timm_style.pth"
+scheme = "iterative" # "validation" | "iterative"
+inklabel_path = "data/20230827161847.zarr/iterative_inklabels/0.png"
+mask_path = None
+save_path = "data/20230827161847.zarr/iterative_inklabels/0_output.png"
+
+# Less commonly changed arguments
 model_name = "unet3d"
 n_layers = 30
 crop_size = 256
 stride_fraction = 8
-freeze_encoder = False
-pretrained_path = "pretrain_checkpoints/20231210132040/resnet_3d_50_1kpretrained_timm_style.pth"
-scheme = "iterative" # "validation" | "iterative"
-inklabel_path = "data/20231210132040.zarr/iterative_inklabels/0.png"
-mask_path = "data/20231210132040.zarr/iterative_inklabels/0_mask.png"
-save_path = "data/20231210132040.zarr/iterative_inklabels/0_output.png"
-
-# Less commonly changed arguments
+freeze_encoder = False 
 data_augmentation = True
 scale_factor = 0.25
 clip_value = 10.0
