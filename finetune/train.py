@@ -27,9 +27,9 @@ validate_every = -1
 segment_id = 20230827161847 # 20230827161847 (small) 20231210121321 (large) 20231210132040 (scroll 4)
 pretrained_path = "pretrain_checkpoints/20230827161847/resnet_3d_50_1kpretrained_timm_style.pth"
 scheme = "iterative" # "validation" | "iterative"
-inklabel_path = "data/20230827161847.zarr/iterative_inklabels/0.png"
+inklabel_path = "data/20230827161847.zarr/iterative_inklabels/1.png"
 mask_path = None
-save_path = "data/20230827161847.zarr/iterative_inklabels/0_output.png"
+save_path = "data/20230827161847.zarr/iterative_inklabels/1_output.png"
 
 # Less commonly changed arguments
 model_name = "unet3d"
