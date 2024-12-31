@@ -1,5 +1,5 @@
 
-# Towards Unsupervised Ink Prediction
+# ScrollMAE: Towards Unsupervised Ink Prediction
 
 This repository contains the first efforts to implement the approach described in [September's report](https://drive.google.com/drive/folders/1S_3BDYpcudAJ2rthNzVqFqGo5GEAgEcr?usp=drive_link). Briefly, the idea here is to use Self-Supervised Learning techniques (based on Masked Autoencoders, or MAE) to train a model on large amounts of unlabeled segment data. If the model learns sufficiently good features, it could be used to detect traces of ink (as shown in a [previous proof-of-concept](https://github.com/jgcarrasco/dino-ink-detection))in another scrolls and serve as a starting point of the iterative labeling approach used in the Grand Prize. The code contained in this repo enables you to:
 - Pretrain a 3D ResNet-50 encoder on any segment. It automatically downloads segments and temporarily stores it locally so that it is not required to re-download until the machine shuts downs or reboots.
